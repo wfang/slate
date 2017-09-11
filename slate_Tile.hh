@@ -15,6 +15,7 @@
 #include <mkl_lapacke.h>
 #include <mpi.h>
 #include <omp.h>
+#include <cuda_runtime.h>
 
 extern "C" void trace_cpu_start();
 extern "C" void trace_cpu_stop(const char *color);
@@ -36,9 +37,6 @@ public:
     MPI_Group bcast_group_;
     MPI_Comm bcast_comm_;
 
-    static int host_num_;
-    int device_num_;
-
     // FloatType *packed_a_;
     // FloatType *packed_b_;
     // int64_t packed_a_life_;
@@ -51,15 +49,16 @@ public:
     void allocate()
     {
         // trace_cpu_start();
-        data_ = (FloatType*)omp_target_alloc(size(), device_num_);
+        cudaError_t error = cudaMallocManaged(&data_, size());
         // trace_cpu_stop("Orchid");
-        assert(data_ != nullptr);
+        assert(error == cudaSuccess);
     }
     void deallocate()
     {
         // trace_cpu_start();
-        omp_target_free(data_, device_num_);
+        cudaError_t error = cudaFree(data_);
         // trace_cpu_stop("Crimson");
+        assert(error == cudaSuccess);
         data_ = nullptr;
     }
     void copyTo(FloatType *a, int64_t lda)
@@ -102,31 +101,15 @@ public:
     // }
 
     Tile(int64_t mb, int64_t nb)
-        : mb_(mb), nb_(nb), device_num_(host_num_), life_(0)
+        : mb_(mb), nb_(nb), life_(0)
     {
         allocate();
     }
     Tile(int64_t mb, int64_t nb, FloatType *a, int64_t lda)
-        : mb_(mb), nb_(nb), device_num_(host_num_), life_(0)
+        : mb_(mb), nb_(nb), life_(0)
     {
         allocate();
         copyTo(a, lda);
-    }
-    Tile(const Tile<FloatType> *src_tile, int dst_device_num)
-    {
-        *this = *src_tile;
-        device_num_ = dst_device_num;
-        allocate();
-        trace_cpu_start();
-        int retval = omp_target_memcpy(data_, src_tile->data_,
-                                       size(), 0, 0,
-                                       dst_device_num, src_tile->device_num_);
-        if (dst_device_num == host_num_)
-            trace_cpu_stop("Gray");
-        else
-            trace_cpu_stop("LightGray");
-
-        assert(retval == 0);
     }
     ~Tile() {
         deallocate();
@@ -202,10 +185,6 @@ public:
         printf("\n");
     }
 };
-
-//------------------------------------------------------------------------------
-template<typename FloatType>
-int Tile<FloatType>::host_num_ = omp_get_initial_device();
 
 } // namespace slate
 

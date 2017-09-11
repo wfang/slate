@@ -14,4 +14,4 @@ INC = -I$(MPI)/include \
 LIB = -L$(MPI)/lib -lmpi \
       -L${MKLROOT}/lib \
       -lmkl_intel_lp64 -lmkl_sequential -lmkl_core -lpthread -lm -ldl \
-      -L$(CUDA)/lib64 -lcublas
+      -L$(CUDA)/lib64 -lcublas -lcuda
