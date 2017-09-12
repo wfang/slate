@@ -90,6 +90,9 @@ int main (int argc, char *argv[])
 
         a.copyFromFull(a1, lda);
         diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
+        // print_lapack_matrix(n, n, a1, lda, nb, nb);
+        // printf("\n");
+        // print_lapack_matrix(n, n, a2, lda, nb, nb);
 
         cblas_daxpy((size_t)lda*n, -1.0, a1, 1, a2, 1);
         double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, a1, lda);

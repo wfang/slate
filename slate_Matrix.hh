@@ -29,7 +29,6 @@ public:
 
     // TODO: replace by unordered_map
     std::map<std::tuple<int64_t, int64_t>, Tile<FloatType>*> *tiles_;
-    omp_lock_t *tiles_lock_ = new omp_lock_t();
 
     Matrix(int64_t m, int64_t n, double *a, int64_t lda,
            int64_t mb, int64_t nb);
@@ -53,30 +52,22 @@ public:
     //----------------------------------------------------------------
     Tile<FloatType>* &operator()(int64_t i, int64_t j)
     {
-        omp_set_lock(tiles_lock_);
         Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j}];
-        omp_unset_lock(tiles_lock_);
         return tile;
     }
     Tile<FloatType>* &operator()(int64_t i, int64_t j) const
     {
-        omp_set_lock(tiles_lock_);
         Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j}];
-        omp_unset_lock(tiles_lock_);
         return tile;
     }
     Tile<FloatType>* &operator()(int64_t i, int64_t j, int device)
     {
-        omp_set_lock(tiles_lock_);
         Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, device}];
-        omp_unset_lock(tiles_lock_);
         return tile;
     }
     Tile<FloatType>* &operator()(int64_t i, int64_t j, int device) const
     {
-        omp_set_lock(tiles_lock_);
         Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, device}];
-        omp_unset_lock(tiles_lock_);
         return tile;
     }
 
@@ -176,8 +167,6 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, double *a, int64_t lda,
 //  }
 
     copyTo(a, lda);
-
-    omp_init_lock(tiles_lock_);
 }
 
 //------------------------------------------------------------------------------
@@ -208,8 +197,6 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, double *a, int64_t lda,
 //  }
 
     copyTo(a, lda);
-
-    omp_init_lock(tiles_lock_);
 }
 
 //------------------------------------------------------------------------------
@@ -467,37 +454,90 @@ void Matrix<FloatType>::syrkAcc(blas::Uplo uplo, blas::Op trans,
     Matrix<FloatType> a = that;
 
     // Lower, NoTrans
-    for (int64_t n = 0; n < c.nt_; ++n) {
-        for (int64_t k = 0; k < a.nt_; ++k) {
-            if (c.tileIsLocal(n, n)) {
+    for (int64_t n = 0; n < c.nt_; ++n)
+        for (int64_t k = 0; k < a.nt_; ++k)
+            if (c.tileIsLocal(n, n))
                 #pragma omp task
                 {
                     a.tileWait(n, k);
                     c(n, n)->syrk(uplo, trans, -1.0, a(n, k), k == 0 ? beta : 1.0);
                 }
-            }
-        }
-    }
-
-    int nb = tileNb(0);
-    for (int64_t n = 0; n < c.nt_; ++n)
-        for (int64_t m = n+1; m < c.mt_; ++m)
-            for (int64_t k = 0; k < a.nt_; ++k)
-                if (c.tileIsLocal(m, n)) {
-
-                    trace_cpu_start();
-                    cublasStatus_t status = 
-                        cublasDgemm(cublas_handle_,
-                                    CUBLAS_OP_N, CUBLAS_OP_T,
-                                    nb, nb, nb,
-                                    &alpha, a(m, k)->data_, nb,
-                                            a(n, k)->data_, nb, 
-                                    &beta,  c(m, n)->data_, nb);
-                    assert(status == CUBLAS_STATUS_SUCCESS);
-                    trace_cpu_stop("LimeGreen");
-                }
-
     #pragma omp taskwait
+
+    #pragma omp task
+    {
+        int nb = tileNb(0);
+        size_t size = nb*nb*sizeof(FloatType);
+
+        for (int64_t n = 0; n < c.nt_; ++n)
+            for (int64_t m = n+1; m < c.mt_; ++m)
+                for (int64_t k = 0; k < a.nt_; ++k)
+                    if (c.tileIsLocal(m, n)) {
+
+                        // cudaMemAdvise(a(m, k)->data_, size, cudaMemAdviseSetReadMostly, 0);
+                        // cudaMemAdvise(a(n, k)->data_, size, cudaMemAdviseSetReadMostly, 0);
+                        // cudaMemAdvise(c(m, n)->data_, size, cudaMemAdviseSetReadMostly, 0);
+
+                        cudaMemPrefetchAsync(a(m, k)->data_, size, 0);
+                        cudaMemPrefetchAsync(a(n, k)->data_, size, 0);
+                        cudaMemPrefetchAsync(c(m, n)->data_, size, 0);
+
+                        trace_cpu_start();
+                        cublasStatus_t status = 
+                            cublasDgemm(cublas_handle_,
+                                        CUBLAS_OP_N, CUBLAS_OP_T,
+                                        nb, nb, nb,
+                                        &alpha, a(m, k)->data_, nb,
+                                                a(n, k)->data_, nb, 
+                                        &beta,  c(m, n)->data_, nb);
+                        assert(status == CUBLAS_STATUS_SUCCESS);
+                        trace_cpu_stop("LimeGreen");
+                    }
+        cudaDeviceSynchronize();
+    }
+    #pragma omp taskwait
+
+    // // Lower, NoTrans
+    // for (int64_t n = 0; n < c.nt_; ++n) {
+    //     for (int64_t k = 0; k < a.nt_; ++k) {
+    //         if (c.tileIsLocal(n, n)) {
+    //             #pragma omp task
+    //             {
+    //                 a.tileWait(n, k);
+    //                 c(n, n)->syrk(uplo, trans, -1.0, a(n, k), k == 0 ? beta : 1.0);
+    //             }
+    //         }
+    //     }
+    // }
+
+    // int nb = tileNb(0);
+    // size_t size = nb*nb*sizeof(FloatType);
+
+    // #pragma omp task
+    // {
+    //     int nb = tileNb(0);
+    //     for (int64_t n = 0; n < c.nt_; ++n)
+    //         for (int64_t m = n+1; m < c.mt_; ++m)
+    //             for (int64_t k = 0; k < a.nt_; ++k)
+    //                 if (c.tileIsLocal(m, n)) {
+
+    //                     cudaMemPrefetchAsync(a(m, k)->data_, size, 0);
+    //                     cudaMemPrefetchAsync(a(n, k)->data_, size, 0);
+    //                     cudaMemPrefetchAsync(c(m, n)->data_, size, 0);
+
+    //                     trace_cpu_start();
+    //                     cublasStatus_t status = 
+    //                         cublasDgemm(cublas_handle_,
+    //                                     CUBLAS_OP_N, CUBLAS_OP_T,
+    //                                     nb, nb, nb,
+    //                                     &alpha, a(m, k)->data_, nb,
+    //                                             a(n, k)->data_, nb, 
+    //                                     &beta,  c(m, n)->data_, nb);
+    //                     assert(status == CUBLAS_STATUS_SUCCESS);
+    //                     trace_cpu_stop("LimeGreen");
+    //                 }
+    // }
+    // #pragma omp taskwait
 }
 
 //------------------------------------------------------------------------------
@@ -838,27 +878,30 @@ void Matrix<FloatType>::potrf(blas::Uplo uplo, int64_t lookahead)
 {
     using namespace blas;
 
-    int t = omp_get_default_device();
     Matrix<FloatType> a = *this;
     uint8_t *column;    
+
+    int nb = tileNb(0);
+    size_t size = nb*nb*sizeof(FloatType);
 
     #pragma omp parallel
     #pragma omp master
     for (int64_t k = 0; k < nt_; ++k) {
-        // panel
-        #pragma omp task depend(inout:column[k]) priority(1)
-        {
-            if (tileIsLocal(k, k))
+
+            if (tileIsLocal(k, k)) {
+                cudaMemPrefetchAsync(a(k, k)->data_, size, cudaCpuDeviceId);
                 a(k, k)->potrf(uplo);
+            }
 
             if (k < nt_-1)
                 tileIbcast(k, k, {k+1, nt_-1, k, k});
 
             for (int64_t m = k+1; m < nt_; ++m) {
                 if (tileIsLocal(m, k)) {
-                    #pragma omp task priority(1)
+                    #pragma omp task
                     {
                         tileWait(k, k);
+                        cudaMemPrefetchAsync(a(m, k)->data_, size, cudaCpuDeviceId);
                         a(m, k)->trsm(Side::Right, Uplo::Lower,
                                       Op::Trans, Diag::NonUnit,
                                       1.0, a(k, k));
@@ -868,50 +911,104 @@ void Matrix<FloatType>::potrf(blas::Uplo uplo, int64_t lookahead)
                                  {m, nt_-1, m, m});
             }
             #pragma omp taskwait
-        }
-        // lookahead column(s)
-        for (int64_t n = k+1; n < k+1+lookahead && n < nt_; ++n) {
-            #pragma omp task depend(in:column[k]) \
-                             depend(inout:column[n]) priority(1)
-            {
-                if (tileIsLocal(n, n)) {
-                    #pragma omp task priority(1)
-                    {
-                        tileWait(n, k);
-                        a(n, n)->syrk(Uplo::Lower, Op::NoTrans,
-                                      -1.0, a(n, k), 1.0);
-                    }
-                }
 
-                for (int64_t m = n+1; m < nt_; ++m) {
-                    if (tileIsLocal(m, n)) {
-                        #pragma omp task priority(1)
-                        {
-                            tileWait(m, k);
-                            tileWait(n, k);
-                            a(m, n)->gemm(Op::NoTrans, Op::Trans,
-                                          -1.0, a(m, k), a(n, k), 1.0);
-                        }
-                    }
-                }
-                #pragma omp taskwait
-            }
-        }
         // trailing submatrix
-        if (k+1+lookahead < nt_) {
-            #pragma omp task depend(in:column[k]) \
-                             depend(inout:column[k+1+lookahead]) \
-                             depend(inout:column[nt_-1])
-            Matrix(a, k+1+lookahead, k+1+lookahead,
-                   nt_-1-k-lookahead, nt_-1-k-lookahead).syrkAcc(
-                Uplo::Lower, Op::NoTrans,
-                -1.0, Matrix(a, k+1+lookahead, k, nt_-1-k-lookahead, 1), 1.0);
-        }
+        Matrix(a, k+1+lookahead, k+1+lookahead,
+               nt_-1-k-lookahead, nt_-1-k-lookahead).syrkAcc(
+            Uplo::Lower, Op::NoTrans,
+            -1.0, Matrix(a, k+1+lookahead, k, nt_-1-k-lookahead, 1), 1.0);
     }
 
     a.checkLife();
     a.printLife();
 }
+
+//------------------------------------------------------------------------------
+// template<typename FloatType>
+// void Matrix<FloatType>::potrf(blas::Uplo uplo, int64_t lookahead)
+// {
+//     using namespace blas;
+
+//     int t = omp_get_default_device();
+//     Matrix<FloatType> a = *this;
+//     uint8_t *column;    
+
+//     int nb = tileNb(0);
+//     size_t size = nb*nb*sizeof(FloatType);
+
+//     #pragma omp parallel
+//     #pragma omp master
+//     for (int64_t k = 0; k < nt_; ++k) {
+//         // panel
+//         #pragma omp task depend(inout:column[k]) priority(1)
+//         {
+//             if (tileIsLocal(k, k)) {
+//                 cudaMemPrefetchAsync(a(k, k)->data_, size, cudaCpuDeviceId);
+//                 a(k, k)->potrf(uplo);
+//             }
+
+//             if (k < nt_-1)
+//                 tileIbcast(k, k, {k+1, nt_-1, k, k});
+
+//             for (int64_t m = k+1; m < nt_; ++m) {
+//                 if (tileIsLocal(m, k)) {
+//                     #pragma omp task priority(1)
+//                     {
+//                         tileWait(k, k);
+//                         cudaMemPrefetchAsync(a(m, k)->data_, size, cudaCpuDeviceId);
+//                         a(m, k)->trsm(Side::Right, Uplo::Lower,
+//                                       Op::Trans, Diag::NonUnit,
+//                                       1.0, a(k, k));
+//                     }
+//                 }
+//                 tileIbcast(m, k, {m, m, k+1, m},
+//                                  {m, nt_-1, m, m});
+//             }
+//             #pragma omp taskwait
+//         }
+//         // lookahead column(s)
+//         for (int64_t n = k+1; n < k+1+lookahead && n < nt_; ++n) {
+//             #pragma omp task depend(in:column[k]) \
+//                              depend(inout:column[n]) priority(1)
+//             {
+//                 if (tileIsLocal(n, n)) {
+//                     #pragma omp task priority(1)
+//                     {
+//                         tileWait(n, k);
+//                         a(n, n)->syrk(Uplo::Lower, Op::NoTrans,
+//                                       -1.0, a(n, k), 1.0);
+//                     }
+//                 }
+
+//                 for (int64_t m = n+1; m < nt_; ++m) {
+//                     if (tileIsLocal(m, n)) {
+//                         #pragma omp task priority(1)
+//                         {
+//                             tileWait(m, k);
+//                             tileWait(n, k);
+//                             a(m, n)->gemm(Op::NoTrans, Op::Trans,
+//                                           -1.0, a(m, k), a(n, k), 1.0);
+//                         }
+//                     }
+//                 }
+//                 #pragma omp taskwait
+//             }
+//         }
+//         // trailing submatrix
+//         if (k+1+lookahead < nt_) {
+//             #pragma omp task depend(in:column[k]) \
+//                              depend(inout:column[k+1+lookahead]) \
+//                              depend(inout:column[nt_-1])
+//             Matrix(a, k+1+lookahead, k+1+lookahead,
+//                    nt_-1-k-lookahead, nt_-1-k-lookahead).syrkAcc(
+//                 Uplo::Lower, Op::NoTrans,
+//                 -1.0, Matrix(a, k+1+lookahead, k, nt_-1-k-lookahead, 1), 1.0);
+//         }
+//     }
+
+//     a.checkLife();
+//     a.printLife();
+// }
 
 } // namespace slate
 

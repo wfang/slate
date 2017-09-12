@@ -63,13 +63,19 @@ public:
     }
     void copyTo(FloatType *a, int64_t lda)
     {
-        for (int64_t n = 0; n < nb_; ++n)
-            memcpy(&data_[n*mb_], &a[n*lda], sizeof(FloatType)*mb_);
+        for (int64_t n = 0; n < nb_; ++n) {
+//          memcpy(&data_[n*mb_], &a[n*lda], sizeof(FloatType)*mb_);
+            cudaError_t error = cudaMemcpy(&data_[n*mb_], &a[n*lda], sizeof(FloatType)*mb_, cudaMemcpyDefault);
+            assert(error == cudaSuccess);
+        }
     }
     void copyFrom(FloatType *a, int64_t lda)
     {
-        for (int64_t n = 0; n < nb_; ++n)
-            memcpy(&a[n*lda], &data_[n*mb_], sizeof(FloatType)*mb_);
+        for (int64_t n = 0; n < nb_; ++n) {
+//          memcpy(&a[n*lda], &data_[n*mb_], sizeof(FloatType)*mb_);
+            cudaError_t error = cudaMemcpy(&a[n*lda], &data_[n*mb_], sizeof(FloatType)*mb_, cudaMemcpyDefault);
+            assert(error == cudaSuccess);
+        }
     }
 
     void tick(Tile<FloatType> *tile)
