@@ -39,7 +39,7 @@ int main (int argc, char *argv[])
     int nt = atoi(argv[2]);
     int p = atoi(argv[3]);
     int q = atoi(argv[4]);
-    int n = nb*nt;
+    size_t n = nb*nt;
     int lda = n;
 
     //------------------------------------------------------
@@ -58,7 +58,7 @@ int main (int argc, char *argv[])
     assert(mpi_size == p*q);
 
     //------------------------------------------------------
-    double *a1 = new double[nb*nb*nt*nt];
+    double *a1 = new double[(size_t)nb*nb*nt*nt];
     int seed[] = {0, 0, 0, 1};
     retval = LAPACKE_dlarnv(1, seed, (size_t)lda*n, a1);
     assert(retval == 0);
@@ -66,18 +66,18 @@ int main (int argc, char *argv[])
     for (int i = 0; i < n; ++i)
         a1[i*lda+i] += sqrt(n);
 
-    //------------------------------------------------------
-    double *a2;
-    if (mpi_rank == 0) {
-        a2 = new double[nb*nb*nt*nt];
-        memcpy(a2, a1, sizeof(double)*lda*n);
-    }
+    // ------------------------------------------------------
+    // double *a2;
+    // if (mpi_rank == 0) {
+    //     a2 = new double[nb*nb*nt*nt];
+    //     memcpy(a2, a1, sizeof(double)*lda*n);
+    // }
 
     //------------------------------------------------------
     trace_off();
     slate::Matrix<double> temp(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, p, q);
     temp.potrf(blas::Uplo::Lower);
-    trace_on();
+    // trace_on();
 
     trace_cpu_start();
     MPI_Barrier(MPI_COMM_WORLD);
@@ -96,7 +96,7 @@ int main (int argc, char *argv[])
 
     //------------------------------------------------------
     if (mpi_rank == 0) {
-
+#if 0
         retval = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', n, a2, lda);
         assert(retval == 0);
 
@@ -109,10 +109,11 @@ int main (int argc, char *argv[])
         if (norm != 0)
             error /= norm;
         printf("\t%le\n", error);
-
+#endif
         double gflops = (double)nb*nb*nb*nt*nt*nt/3.0/time/1000000000.0;
+	printf("\t%.0lf seconds\n", time);
         printf("\t%.0lf GFLOPS\n", gflops);
-        delete[] a2;
+        // delete[] a2;
     }
 
     //------------------------------------------------------
@@ -135,7 +136,7 @@ void print_lapack_matrix(int m, int n, double *a, int lda, int mb, int nb)
             for (int j = 0; j < (n+1)*8; ++j) {
                 printf("-");
             }
-            printf("\n");        
+            printf("\n");
         }
     }
     printf("\n");
@@ -161,7 +162,7 @@ void diff_lapack_matrices(int m, int n, double *a, int lda, double *b, int ldb,
             for (int j = 0; j < (n/nb)*5; ++j) {
                 printf("-");
             }
-            printf("\n");        
+            printf("\n");
         }
     }
     printf("\n");

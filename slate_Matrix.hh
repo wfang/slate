@@ -85,7 +85,7 @@ public:
               blas::Op trans, blas::Diag diag,
               FloatType alpha, const Matrix &a);
 
-    void potrf(blas::Uplo uplo, int64_t lookahead=3);
+    void potrf(blas::Uplo uplo, int64_t lookahead=0);
 
 private:
     MPI_Comm mpi_comm_;
@@ -101,7 +101,7 @@ private:
 
     //----------------------------------------------------------
     std::function <int64_t (int64_t i, int64_t j)> tileRankFunc;
-    std::function <int64_t (int64_t i, int64_t j)> tileDeviceFunc;    
+    std::function <int64_t (int64_t i, int64_t j)> tileDeviceFunc;
     std::function <int64_t (int64_t i)> tileMbFunc;
     std::function <int64_t (int64_t j)> tileNbFunc;
 
@@ -134,7 +134,7 @@ private:
     //--------------------------------------------
     void tileSend(int64_t i, int64_t j, int dest);
     void tileRecv(int64_t i, int64_t j, int src);
-    
+
     void tileBcast(int64_t m, int64_t n);
     void tileIbcast(int64_t m, int64_t n,
                     std::array<int64_t, 4> range);
@@ -179,7 +179,7 @@ void Matrix<FloatType>::tileCopyToDevice(int64_t i, int64_t j, int dst_device)
     if (tiles_->find({it_+i, jt_+j, dst_device}) == tiles_->end()) {
         // Copy the tile to the device.
         Tile<FloatType> *src_tile = (*tiles_)[{it_+i, jt_+j, host_num_}];
-        (*tiles_)[{it_+i, jt_+j, dst_device}] = 
+        (*tiles_)[{it_+i, jt_+j, dst_device}] =
             new Tile<FloatType>(src_tile, dst_device);
     }
     omp_unset_lock(tiles_lock_);
@@ -197,7 +197,7 @@ void Matrix<FloatType>::tileMoveToDevice(int64_t i, int64_t j, int dst_device)
     if (tiles_->find({it_+i, jt_+j, dst_device}) == tiles_->end()) {
         // Move the tile to the device.
         Tile<FloatType> *src_tile = (*tiles_)[{it_+i, jt_+j, host_num_}];
-        (*tiles_)[{it_+i, jt_+j, dst_device}] = 
+        (*tiles_)[{it_+i, jt_+j, dst_device}] =
             new Tile<FloatType>(src_tile, dst_device);
         delete (*tiles_)[{it_+i, jt_+j, host_num_}];
         tiles_->erase({it_+i, jt_+j, host_num_});
@@ -211,7 +211,7 @@ void Matrix<FloatType>::tileMoveToDevice(int64_t i, int64_t j, int dst_device)
 // {
 //     omp_set_lock(tiles_lock_);
 //     Tile<FloatType> *src_tile = (*tiles_)[{it_+i, jt_+j, src_device}];
-//     (*tiles_)[{it_+i, jt_+j, host_num_}] = 
+//     (*tiles_)[{it_+i, jt_+j, host_num_}] =
 //         new Tile<FloatType>(src_tile, host_num_);
 //     omp_unset_lock(tiles_lock_);
 // }
@@ -228,7 +228,7 @@ void Matrix<FloatType>::tileMoveToHost(int64_t i, int64_t j, int src_device)
     if (tiles_->find({it_+i, jt_+j, host_num_}) == tiles_->end()) {
         // Move the tile to the host.
         Tile<FloatType> *src_tile = (*tiles_)[{it_+i, jt_+j, src_device}];
-        (*tiles_)[{it_+i, jt_+j, host_num_}] = 
+        (*tiles_)[{it_+i, jt_+j, host_num_}] =
             new Tile<FloatType>(src_tile, host_num_);
         delete (*tiles_)[{it_+i, jt_+j, src_device}];
         tiles_->erase({it_+i, jt_+j, src_device});
@@ -271,12 +271,12 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, double *a, int64_t lda,
 
     host_num_ = omp_get_initial_device();
     num_devices_ = omp_get_num_devices();
-
+#ifdef CUBLAS
     if (num_devices_ > 0) {
         cublasStatus_t status = cublasCreate(&cublas_handle_);
         assert(status == CUBLAS_STATUS_SUCCESS);
     }
-
+#endif
     copyTo(a, lda);
 
     omp_init_lock(tiles_lock_);
@@ -306,12 +306,12 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, double *a, int64_t lda,
 
     host_num_ = omp_get_initial_device();
     num_devices_ = omp_get_num_devices();
-
+#ifdef CUBLAS
     if (num_devices_ > 0) {
         cublasStatus_t status = cublasCreate(&cublas_handle_);
         assert(status == CUBLAS_STATUS_SUCCESS);
     }
-
+#endif
     copyTo(a, lda);
 
     omp_init_lock(tiles_lock_);
@@ -608,12 +608,12 @@ void Matrix<FloatType>::syrkAcc(blas::Uplo uplo, blas::Op trans,
                     if (c.tileIsLocal(m, n)) {
 
                         trace_cpu_start();
-                        cublasStatus_t status = 
+                        cublasStatus_t status =
                             cublasDgemm(cublas_handle_,
                                         CUBLAS_OP_N, CUBLAS_OP_T,
                                         nb, nb, nb,
                                         &alpha, a(m, k, t)->data_, nb,
-                                                a(n, k, t)->data_, nb, 
+                                                a(n, k, t)->data_, nb,
                                         &beta,  c(m, n, t)->data_, nb);
                         assert(status == CUBLAS_STATUS_SUCCESS);
                         trace_cpu_stop("LimeGreen");
@@ -654,7 +654,7 @@ void Matrix<FloatType>::trsm(blas::Side side, blas::Uplo uplo,
 
         for (int64_t m = 0; m < b.mt_; ++m) {
             #pragma omp task
-            b(m, k)->trsm(side, uplo, trans, diag, 1.0, a(k, k)); 
+            b(m, k)->trsm(side, uplo, trans, diag, 1.0, a(k, k));
 
             for (int64_t n = k+1; n < b.nt_; ++n)
                 #pragma omp task
@@ -945,12 +945,15 @@ void Matrix<FloatType>::checkLife()
 {
     for (auto it = tiles_->begin(); it != tiles_->end(); ++it) {
         if (!tileIsLocal(std::get<0>(it->first), std::get<1>(it->first)))
-            if (it->second->life_ != 0 || it->second->data_ != nullptr)
-                std::cout << "P" << mpi_rank_
+	  if (it->second->life_ != 0 || it->second->data_ != nullptr) {
+	      std::cout << "P" << mpi_rank_
                           << " TILE " << std::get<0>(it->first)
                           << " " << std::get<1>(it->first)
                           << " LIFE " << it->second->life_
                           << " data_ " << it->second->data_ << std::endl;
+	      break;
+	  }
+
     }
 }
 
@@ -979,7 +982,7 @@ void Matrix<FloatType>::potrf(blas::Uplo uplo, int64_t lookahead)
 
     int t = omp_get_default_device();
     Matrix<FloatType> a = *this;
-    uint8_t *column;    
+    uint8_t *column;
     printf("==== POTRF: lookahead=%d \n",
 	   lookahead);
     #pragma omp parallel
@@ -1043,14 +1046,15 @@ void Matrix<FloatType>::potrf(blas::Uplo uplo, int64_t lookahead)
                              depend(inout:column[k+1+lookahead]) \
                              depend(inout:column[nt_-1])
             Matrix(a, k+1+lookahead, k+1+lookahead,
-                   nt_-1-k-lookahead, nt_-1-k-lookahead).syrkAcc(
+                   // nt_-1-k-lookahead, nt_-1-k-lookahead).syrkAcc(
+		   nt_-1-k-lookahead, nt_-1-k-lookahead).syrkTask(
                 Uplo::Lower, Op::NoTrans,
                 -1.0, Matrix(a, k+1+lookahead, k, nt_-1-k-lookahead, 1), 1.0);
         }
     }
 
     a.checkLife();
-    a.printLife();
+    // a.printLife();
 }
 
 } // namespace slate
