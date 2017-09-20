@@ -15,8 +15,9 @@
 // #include <mkl_lapacke.h>
 #include <mpi.h>
 #include <omp.h>
+#ifdef CUBLAS
 #include <cuda_runtime.h>
-
+#endif
 extern "C" void trace_cpu_start();
 extern "C" void trace_cpu_stop(const char *color);
 
@@ -57,10 +58,12 @@ public:
             data_ = (FloatType*)malloc(size());
             assert(data_ != nullptr);
         }
+#ifdef CUBLAS
         else {
             cudaError_t error = cudaMalloc(&data_, size());
             assert(error == cudaSuccess);
         }
+#endif
         // trace_cpu_stop("Orchid");
         assert(data_ != nullptr);
     }
@@ -70,8 +73,10 @@ public:
         // omp_target_free(data_, device_num_);
         if (device_num_ == host_num_)
             free(data_);
+#ifdef CUBLAS
         else
             cudaFree(data_);
+#endif
         // trace_cpu_stop("Crimson");
         data_ = nullptr;
     }
@@ -131,12 +136,17 @@ public:
         device_num_ = dst_device_num;
         allocate();
         trace_cpu_start();
-        // int retval = omp_target_memcpy(data_, src_tile->data_,
-        //                                size(), 0, 0,
-        //                                dst_device_num, src_tile->device_num_);
+	
+
+#ifdef CUBLAS
         cudaError_t error = cudaMemcpy(data_, src_tile->data_, size(),
                                        cudaMemcpyDefault);
         assert(error == cudaSuccess);
+#else
+	int retval = omp_target_memcpy(data_, src_tile->data_,
+                                       size(), 0, 0,
+                                       dst_device_num, src_tile->device_num_);
+#endif
 
         if (dst_device_num == host_num_)
             trace_cpu_stop("Gray");

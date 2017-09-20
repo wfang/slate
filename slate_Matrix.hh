@@ -14,9 +14,10 @@
 
 #include <mpi.h>
 #include <omp.h>
+#ifdef CUBLAS
 #include <cublas_v2.h>
 #include <cuda_runtime.h>
-
+#endif	// CUDA
 namespace slate {
 
 //------------------------------------------------------------------------------
@@ -96,9 +97,9 @@ private:
 
     int host_num_;
     int num_devices_;
-
+#ifdef CUBLAS
     cublasHandle_t cublas_handle_;
-
+#endif
     //----------------------------------------------------------
     std::function <int64_t (int64_t i, int64_t j)> tileRankFunc;
     std::function <int64_t (int64_t i, int64_t j)> tileDeviceFunc;
@@ -563,6 +564,7 @@ void Matrix<FloatType>::syrkBatch(blas::Uplo uplo, blas::Op trans,
 #endif // #ifndef NOBATCH
 
 //------------------------------------------------------------------------------
+#ifdef CUBLAS
 template<typename FloatType>
 void Matrix<FloatType>::syrkAcc(blas::Uplo uplo, blas::Op trans,
                                 FloatType alpha, const Matrix &that,
@@ -638,6 +640,7 @@ void Matrix<FloatType>::syrkAcc(blas::Uplo uplo, blas::Op trans,
 
     #pragma omp taskwait
 }
+#endif
 
 //------------------------------------------------------------------------------
 template<typename FloatType>
