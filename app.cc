@@ -34,12 +34,13 @@ lapack_int LAPACKE_zlarnv( lapack_int idist, lapack_int* iseed, lapack_int n,
 //------------------------------------------------------------------------------
 int main (int argc, char *argv[])
 {
-    assert(argc == 6);
+    assert(argc == 7);
     int nb = atoi(argv[1]);
     int nt = atoi(argv[2]);
     int p = atoi(argv[3]);
     int q = atoi(argv[4]);
     int64_t lookahead = atoll(argv[5]);
+    int check = atoi(argv[6]); // 1 means check correctness; other wise no
     size_t n = nb*nt;
     int lda = n;
 
@@ -68,11 +69,13 @@ int main (int argc, char *argv[])
         a1[i*lda+i] += sqrt(n);
 
     // ------------------------------------------------------
-    // double *a2;
-    // if (mpi_rank == 0) {
-    //     a2 = new double[nb*nb*nt*nt];
-    //     memcpy(a2, a1, sizeof(double)*lda*n);
-    // }
+    
+    double *a2;
+    if (check == 1)
+	if (mpi_rank == 0) {
+	    a2 = new double[nb*nb*nt*nt];
+	    memcpy(a2, a1, sizeof(double)*lda*n);
+	}
 
     //------------------------------------------------------
     trace_off();
@@ -97,20 +100,23 @@ int main (int argc, char *argv[])
 
     //------------------------------------------------------
     if (mpi_rank == 0) {
-#if 0
-        retval = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', n, a2, lda);
-        assert(retval == 0);
+// #if 0
+	if (check==1) {
+	    retval = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', n, a2, lda);
+	    assert(retval == 0);
 
-        a.copyFromFull(a1, lda);
-        diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
+	    a.copyFromFull(a1, lda);
+	    diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
 
-        cblas_daxpy((size_t)lda*n, -1.0, a1, 1, a2, 1);
-        double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, a1, lda);
-        double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, a2, lda);
-        if (norm != 0)
-            error /= norm;
-        printf("\t%le\n", error);
-#endif
+	    cblas_daxpy((size_t)lda*n, -1.0, a1, 1, a2, 1);
+	    double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, a1, lda);
+	    double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, a2, lda);
+	    if (norm != 0)
+		error /= norm;
+	    printf("\t%le\n", error);
+	} else
+	    printf("error check not performed!\n");
+// #endif
         double gflops = (double)nb*nb*nb*nt*nt*nt/3.0/time/1000000000.0;
 	printf("\t%.0lf seconds\n", time);
         printf("\t%.0lf GFLOPS\n", gflops);
