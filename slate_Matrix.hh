@@ -45,7 +45,7 @@ public:
         // only if not a submatrix
         // assert(cublasDestroy(cublas_handle_) == CUBLAS_STATUS_SUCCESS);
     }
-
+    void random();
     void copyTo(FloatType *a, int64_t lda);
     void copyFrom(FloatType *a, int64_t lda);
     void copyFromFull(FloatType *a, int64_t lda);
@@ -313,8 +313,9 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, double *a, int64_t lda,
         assert(status == CUBLAS_STATUS_SUCCESS);
     }
 #endif
-    copyTo(a, lda);
-
+    // copyTo(a, lda);
+    random();
+    
     omp_init_lock(tiles_lock_);
 }
 
@@ -331,7 +332,33 @@ Matrix<FloatType>::Matrix(const Matrix &a, int64_t it, int64_t jt,
     mt_ = mt;
     nt_ = nt;
 }
+template<typename FloatType>
+void Matrix<FloatType>::random()
+{
+    for (int64_t i = 0; i < mt_; ++i) {
+        for (int64_t j = 0; j <= i; ++j) {
+            if (tileIsLocal(i, j))
+            {
+                Tile<FloatType> *tile =
+                    new Tile<FloatType>(tileMb(i), tileNb(j));
 
+                int iseed[4];
+                iseed[0] = i & 0x0FFF;
+                iseed[1] = j & 0x0FFF;
+                iseed[2] = ((i >> 12) + (j >> 12)) & 0x0FFF;
+                iseed[3] = 1;
+                int nb = tileNb(0);
+                LAPACKE_dlarnv(1, iseed, (size_t)nb*nb, tile->data_);
+
+                if (i == j) {
+                    for (int64_t k = 0; k < nb; ++k)
+                    tile->data_[k*nb+k] += nb*nt_;
+                }
+                (*this)(i, j) = tile;
+            }
+        }
+    }
+}
 //------------------------------------------------------------------------------
 template<typename FloatType>
 void Matrix<FloatType>::copyTo(FloatType *a, int64_t lda)

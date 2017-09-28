@@ -60,34 +60,35 @@ int main (int argc, char *argv[])
     assert(mpi_size == p*q);
 
     //------------------------------------------------------
-    double *a1 = new double[(size_t)nb*nb*nt*nt];
-    int seed[] = {0, 0, 0, 1};
-    retval = LAPACKE_dlarnv(1, seed, (size_t)lda*n, a1);
-    assert(retval == 0);
+    // double *a1 = new double[(size_t)nb*nb*nt*nt];
+    // int seed[] = {0, 0, 0, 1};
+    // retval = LAPACKE_dlarnv(1, seed, (size_t)lda*n, a1);
+    // assert(retval == 0);
 
-    for (int i = 0; i < n; ++i)
-        a1[i*lda+i] += sqrt(n);
+    // for (int i = 0; i < n; ++i)
+    //     a1[i*lda+i] += sqrt(n);
 
     // ------------------------------------------------------
     
-    double *a2;
-    if (check == 1)
-	if (mpi_rank == 0) {
-	    a2 = new double[nb*nb*nt*nt];
-	    memcpy(a2, a1, sizeof(double)*lda*n);
-	}
+    // double *a2;
+    // if (check == 1)
+    // 	if (mpi_rank == 0) {
+    // 	    a2 = new double[nb*nb*nt*nt];
+    // 	    memcpy(a2, a1, sizeof(double)*lda*n);
+    // 	}
 
     //------------------------------------------------------
     trace_off();
-    slate::Matrix<double> temp(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, p, q);
-    temp.potrf(blas::Uplo::Lower, lookahead);
+    // slate::Matrix<double> temp(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, p, q);
+    // slate::Matrix<double> temp(n, n, nullptr, lda, nb, nb, MPI_COMM_WORLD, p, q);
+    // temp.potrf(blas::Uplo::Lower, lookahead);
     // trace_on();
 
     trace_cpu_start();
     MPI_Barrier(MPI_COMM_WORLD);
     trace_cpu_stop("Black");
 
-    slate::Matrix<double> a(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, p, q);
+    slate::Matrix<double> a(n, n, nullptr, lda, nb, nb, MPI_COMM_WORLD, p, q);
     double start = omp_get_wtime();
     a.potrf(blas::Uplo::Lower, lookahead);
 
@@ -96,35 +97,36 @@ int main (int argc, char *argv[])
     trace_cpu_stop("Black");
 
     double time = omp_get_wtime()-start;
-    a.gather();
+    // a.gather();
 
     //------------------------------------------------------
     if (mpi_rank == 0) {
 // #if 0
-	if (check==1) {
-	    retval = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', n, a2, lda);
-	    assert(retval == 0);
+	// if (check==1) {
+	//     retval = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', n, a2, lda);
+	//     assert(retval == 0);
 
-	    a.copyFromFull(a1, lda);
-	    diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
+	//     a.copyFromFull(a1, lda);
+	//     diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
 
-	    cblas_daxpy((size_t)lda*n, -1.0, a1, 1, a2, 1);
-	    double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, a1, lda);
-	    double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, a2, lda);
-	    if (norm != 0)
-		error /= norm;
-	    printf("\t%le\n", error);
-	} else
-	    printf("error check not performed!\n");
+	//     cblas_daxpy((size_t)lda*n, -1.0, a1, 1, a2, 1);
+	//     double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, a1, lda);
+	//     double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, a2, lda);
+	//     if (norm != 0)
+	// 	error /= norm;
+	//     printf("\t%le\n", error);
+	// } else
+	//     printf("error check not performed!\n");
 // #endif
         double gflops = (double)nb*nb*nb*nt*nt*nt/3.0/time/1000000000.0;
 	printf("\t%.0lf seconds\n", time);
         printf("\t%.0lf GFLOPS\n", gflops);
+	fflush(stdout);
         // delete[] a2;
     }
 
     //------------------------------------------------------
-    delete[] a1;
+    // delete[] a1;
     trace_finish();
     return EXIT_SUCCESS;
 }
