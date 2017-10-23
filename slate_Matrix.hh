@@ -69,10 +69,12 @@ public:
     void random();
     void random_general();
     void copyTo(FloatType *a, int64_t lda);
+    void copyTo_general(FloatType *a, int64_t lda);
     void copyFrom(FloatType *a, int64_t lda);
     void copyFromFull(FloatType *a, int64_t lda);
 
     void gather();
+    void gather_general();
 
     //------------------------------------------------------------------
     Tile<FloatType>* &operator()(int64_t i, int64_t j)
@@ -415,7 +417,12 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
     }
 
 //  copyTo(a, lda);
-    random_general();
+    // random_general();
+    if (a != nullptr)
+        copyTo_general(a, lda); // TODO: this will break potrf.
+    else
+        random();
+    
     printf("Random matrix generated...\n");
 
     omp_init_lock(tiles_lock_);
@@ -484,16 +491,7 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
 
     tileRankFunc = [=] (int64_t i, int64_t j) { return i%p + (j%q)*p; };
 
-        // int prow, pcol;
-    // prow = mpi_rank_ % p;
-    // pcol = mpi_rank_ / p;
-    // The creation of MPI Comm must be outside of Matrix, as the comm
-    // must agree on all participating matrices.
-    // TODO: Wrap the communicators into a context.
-    // MPI_Comm_split(mpi_comm_, prow, pcol, &mpi_comm_row_);
-    // MPI_Comm_split(mpi_comm_, pcol, prow, &mpi_comm_col_);
-    // mpi_comm_row_ = row_comm;
-    // mpi_comm_col_ = col_comm;
+
     
     if (num_devices_ > 0) {
         tileDeviceFunc = [=] (int64_t i, int64_t j)
@@ -530,7 +528,11 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
     }
 
 //  copyTo(a, lda);
-    random();
+    if (a != nullptr)
+        copyTo(a, lda);
+    else
+        random();
+    // random();
     printf("Random matrix generated...\n");
 
     omp_init_lock(tiles_lock_);
@@ -703,6 +705,25 @@ void Matrix<FloatType>::gather()
             }
         }
     }
+}
+
+//------------------------------------------------------------------------------
+// gather all the tiles into MPI rank 0
+template<typename FloatType>
+void Matrix<FloatType>::gather_general()
+{
+    for (int64_t i = 0; i < mt_; ++i) {
+        for (int64_t j = 0; j < nt_; ++j) {
+            if (mpi_rank_ == 0) {
+                if (!tileIsLocal(i, j))
+                    tileRecv(i, j, tileRank(i, j));
+            }
+            else {
+                if (tileIsLocal(i, j))
+                    tileSend(i, j, 0);
+            }
+        }
+    }    
 }
 
 //------------------------------------------------------------------------------
