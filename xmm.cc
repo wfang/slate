@@ -138,8 +138,8 @@ int main (int argc, char *argv[])
         // a.copyFromFull(a1, lda);
 	c.copyFromFull_general(c1, lda);
         // diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
-	if (nt <= 20) ;
-	    // diff_lapack_matrices(n, n, c1, lda, c2, lda, nb, nb);
+	if (nt <= 20) 
+	    diff_lapack_matrices(n, n, c1, lda, c2, lda, nb, nb);
 
 	printf("c1(0,0)=%.3f,c2(0,0)=%.3f\n", c(0,0)->data_[0], c2[0]);
 	
