@@ -1,4 +1,6 @@
 // TODO: support transa, transb
+// #include <omp.h>
+
 namespace slate {
     
 template<typename FloatType>
@@ -53,8 +55,8 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
     // TODO: implement pipeline to overlap communication with computation
     for (int k=0; k<K; k++) { // phase k
 	// broadcast the kth col ,of a
-	printf("iteration k=%d\n",k);
-	printf("row broadcasting...\n");
+	// printf("iteration k=%d\n",k);
+	// printf("row broadcasting...\n");
 	for (int i=0; i<M; i++) {
 	    if ((i+it_)%p == prow) {
 		if (!a.tileIsLocal(i,k)) {
@@ -62,14 +64,15 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		    auto *tile = new Tile<FloatType>(a.tileMb(i),a.tileNb(k));
 		    a(i,k) = tile;
 		}
-		// #pragma omp task depend(out:adep[i*M + k])
+#pragma omp task depend(out:adep[i*M + k]) shared(a,b)
+                // #pragma omp task shared(a,b)
 		{
-		    auto tile = a(i,k);
+		    Tile<FloatType>  *tile = a(i,k);
 		    int count = tile->mb_*tile->nb_;
 		    // TODO: hardcoded 2d block cyclic distribution
 		    // TODO: setup life for tile
 		    int err;
-                    #pragma omp critical
+                    // #pragma omp critical
 		    err = MPI_Bcast(tile->data_, count, MPI_DOUBLE,
 				    (jt_+k)%q, mpi_comm_row_);
 		    assert(err == MPI_SUCCESS);
@@ -77,7 +80,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 	    }
 	}
 	// broadcast the kth row of b
-	printf("col broadcasting...\n");
+	// printf("col broadcasting...\n");
 	for (int j=0; j<N; j++) {
 	    // TODO
 	    // printf("j=%d\n", j);
@@ -89,21 +92,23 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		    auto *tile = new Tile<FloatType>(b.tileMb(k), b.tileNb(j));
 		    b(k,j) = tile;
 		}
-		// #pragma omp task depend(out:bdep[k*K + j])
+#pragma omp task depend(out:bdep[k*K + j]) shared(a,b)
+                // #pragma omp task shared(a,b)
 		{
 		    // printf("accessing a(%d,%d)..\n", k, j);
-		    auto *tile = b(k,j);
+		    Tile<FloatType> *tile = b(k,j);
 		    int count = tile->mb_*tile->nb_;
 		    int err;
-                    #pragma omp critical
+                    // #pragma omp critical
 		    err = MPI_Bcast(tile->data_, count, MPI_DOUBLE,
 				    (it_+k)%p, mpi_comm_col_);
 		    assert(err == MPI_SUCCESS);
 		}
 	    }
 	}
+	// #pragma omp taskwait
 	// do the trailing matrix update
-	printf("update matrix C...\n");
+	// printf("update matrix C...\n");
 	for (int i=0; i<M; i++) {
 	    for (int j=0; j<N; j++) {
                 // #pragma omp task depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
@@ -124,16 +129,20 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 			//        i,j,tiles_->count({i,j,host_num_}));
 			// The first iteration does C = alpha*A1*B1 + beta*C;
 			// The rest does C = alpha*Ak*Bk + C
-			if (k==0)
-			    (*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
-					       a(i,k), b(k,j), beta);
-			else 
-			    (*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
-					       a(i,k), b(k,j), 1.0);
+#pragma omp task shared(a,b) depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
+			{
+			    if (k==0)
+				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
+						   a(i,k), b(k,j), beta);
+			    else 
+				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
+						   a(i,k), b(k,j), 1.0);
+			}
 		    }
 		}
 	    }
 	}
+	#pragma omp taskwait
     }
 }
 

@@ -138,10 +138,10 @@ int main (int argc, char *argv[])
         // a.copyFromFull(a1, lda);
 	c.copyFromFull_general(c1, lda);
         // diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
-	if (nt <= 20) 
+	if (nt <= 10) 
 	    diff_lapack_matrices(n, n, c1, lda, c2, lda, nb, nb);
 
-	printf("c1(0,0)=%.3f,c2(0,0)=%.3f\n", c(0,0)->data_[0], c2[0]);
+	// printf("c1(0,0)=%.3f,c2(0,0)=%.3f\n", c(0,0)->data_[0], c2[0]);
 	
         cblas_daxpy((size_t)lda*n, -1.0, c1, 1, c2, 1);
         double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, c1, lda);
@@ -152,6 +152,10 @@ int main (int argc, char *argv[])
         // if (norm != 0)
             // error /= norm;
         printf("\terror %le, norm %le\n", error, norm);
+	if (error/norm > 1.e-12) {
+	    printf("INCORRECT RESULT!\n");
+	    return -1;
+	}
     }
 
     //------------------------------------------------------
