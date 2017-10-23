@@ -154,7 +154,10 @@ int main (int argc, char *argv[])
         printf("\terror %le, norm %le\n", error, norm);
 	if (error/norm > 1.e-12) {
 	    printf("INCORRECT RESULT!\n");
-	    return -1;
+	    return 254;
+	} else {
+	    printf("RESULTS CORRECT!\n");
+	    return EXIT_SUCCESS;
 	}
     }
 

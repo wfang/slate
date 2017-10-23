@@ -247,7 +247,7 @@ template<typename FloatType>
 int Tile<FloatType>::host_num_ = omp_get_initial_device();
 
 template<typename FloatType>
-Memory Tile<FloatType>::memory_ = Memory(sizeof(FloatType)*512*512, 1000);
+Memory Tile<FloatType>::memory_ = Memory(sizeof(FloatType)*512*512, 10000);
 
 } // namespace slate
 
