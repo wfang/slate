@@ -64,8 +64,8 @@ int main (int argc, char *argv[])
     assert(err==MPI_SUCCESS);
 
     double *a1 = nullptr;
-    double *a2 = nullptr;
-    double *b2 = nullptr;
+    // double *a2 = nullptr;
+    // double *b2 = nullptr;
     double *c2 = nullptr;
     double *c1 = nullptr;
     if (test) {
@@ -73,15 +73,16 @@ int main (int argc, char *argv[])
         a1 = new double[nb*nb*nt*nt];
         lapack::larnv(1, seed, lda*n, a1);
 	c1 = new double[nb*nb*nt*nt];
+	// memcpy(c1, a1, sizeof(double)*lda*n);
         // for (int64_t i = 0; i < n; ++i)
         //     a1[i*lda+i] += sqrt(n);
 
         if (mpi_rank == 0) {
-            a2 = new double[nb*nb*nt*nt];
-	    b2 = new double[nb*nb*nt*nt];
+            // a2 = new double[nb*nb*nt*nt];
+	    // b2 = new double[nb*nb*nt*nt];
 	    c2 = new double[nb*nb*nt*nt];
-            memcpy(a2, a1, sizeof(double)*lda*n);
-	    memcpy(b2, a1, sizeof(double)*lda*n);
+            // memcpy(a2, a1, sizeof(double)*lda*n);
+	    // memcpy(b2, a1, sizeof(double)*lda*n);
 	    memcpy(c2, a1, sizeof(double)*lda*n);
         }
     }
@@ -96,7 +97,8 @@ int main (int argc, char *argv[])
     slate::Matrix<double> a(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
     slate::Matrix<double> b(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
     slate::Matrix<double> c(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
-    printf("matrix created\n");
+    printf("R%d: matrix created: # tiles: a %d, b %d, c %d\n",
+	   mpi_rank, a.tiles_->size(), b.tiles_->size(), c.tiles_->size());
     trace_on();
 
     trace_cpu_start();
@@ -121,30 +123,35 @@ int main (int argc, char *argv[])
     //------------------------------------------------------
     if (mpi_rank == 0) {
 
-        double gflops = (double)nb*nb*nb*nt*nt*nt/3.0/time/1000000000.0;
+        double gflops = (double)nb*nb*nb*nt*nt*nt*2/time/1000000000.0;
         printf("\t%.0lf GFLOPS\n", gflops);
         fflush(stdout);
 
         // retval = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', n, a2, lda);
         // assert(retval == 0);
-	blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
-		   n, n, n, alpha, a2, lda, b2, lda, beta, c2, lda);
-
+	// 
+	// blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
+	// 	   n, n, n, alpha, a1, lda, a1, lda, beta, c2, lda);
+	cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, n, n, n,
+		    alpha, a1, lda, a1, lda, beta, c2, lda);
 
         // a.copyFromFull(a1, lda);
-	c.copyFromFull(c1, lda);
+	c.copyFromFull_general(c1, lda);
         // diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
-	diff_lapack_matrices(n, n, c1, lda, c2, lda, nb, nb);
+	if (nt <= 20) ;
+	    // diff_lapack_matrices(n, n, c1, lda, c2, lda, nb, nb);
 
-        // cblas_daxpy((size_t)lda*n, -1.0, a1, 1, a2, 1);
-        // double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, a1, lda);
+	printf("c1(0,0)=%.3f,c2(0,0)=%.3f\n", c(0,0)->data_[0], c2[0]);
+	
+        cblas_daxpy((size_t)lda*n, -1.0, c1, 1, c2, 1);
+        double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, c1, lda);
         // double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, a2, lda);
 	double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, c2, lda);
         // delete[] a2;
 
         // if (norm != 0)
-        //     error /= norm;
-        // printf("\t%le\n", error);
+            // error /= norm;
+        printf("\terror %le, norm %le\n", error, norm);
     }
 
     //------------------------------------------------------

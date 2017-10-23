@@ -154,12 +154,25 @@ void gemm(blas::Layout layout,
                         double *b, int64_t ldb,
           double beta,  double *c, int64_t ldc)
 {
-    cblas_dgemm(CblasColMajor,
-                CblasNoTrans, CblasTrans,
-                m, n, k, 
-                alpha, a, lda,
-                       b, ldb,
-                beta,  c, ldc);
+    if (transa == blas::Op::NoTrans && transb == blas::Op::Trans) {
+	cblas_dgemm(CblasColMajor,
+		    CblasNoTrans, CblasTrans,
+		    m, n, k, 
+		    alpha, a, lda,
+		    b, ldb,
+		    beta,  c, ldc);
+    } else if (transa == blas::Op::NoTrans && transb == blas::Op::NoTrans) {
+	cblas_dgemm(CblasColMajor,
+		    CblasNoTrans, CblasNoTrans,
+		    m, n, k, 
+		    alpha, a, lda,
+		    b, ldb,
+		    beta,  c, ldc);
+    } else {
+	// Not implemented!
+	assert(0);
+    }
+	
 }
 
 //------------------------------------------------------------------------------

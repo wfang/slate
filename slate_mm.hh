@@ -7,11 +7,25 @@ void Matrix<FloatType>::copyTo_general(FloatType *a, int64_t lda)
     int64_t m = 0;
     for (int64_t i = 0; i < mt_; ++i) {
         int64_t n = 0;
-        for (int64_t j = 0; j <= nt_; ++j) {
+        for (int64_t j = 0; j < nt_; ++j) {
             if (tileIsLocal(i, j))
                 (*this)(i, j) =
                     new Tile<FloatType>(tileMb(i), tileNb(j),
                                         &a[(size_t)lda*n+m], lda);
+            n += tileNb(j);
+        }
+        m += tileMb(i);
+    }
+}
+
+template<typename FloatType>
+void Matrix<FloatType>::copyFromFull_general(FloatType *a, int64_t lda)
+{
+    int64_t m = 0;
+    for (int64_t i = 0; i < mt_; ++i) {
+        int64_t n = 0;
+        for (int64_t j = 0; j < nt_; ++j) {
+            (*this)(i, j)->copyFrom(&a[(size_t)lda*n+m], lda);
             n += tileNb(j);
         }
         m += tileMb(i);
@@ -103,13 +117,19 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		    // }
 		    // printf("\n");
 		    if (tileIsLocal(i,j)) {
-			printf("rank %d count a(%d,%d)=%d b(%d,%d)=%d c(%d,%d)=%d \n",
-			       mpi_rank_,
-			       i,k,a.tiles_->count({i,k,host_num_}),
-			       k,j,b.tiles_->count({k,j,host_num_}),
-			       i,j,tiles_->count({i,j,host_num_}));
-			(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
-					   a(i,k), b(k,j), beta);
+			// printf("rank %d count a(%d,%d)=%d b(%d,%d)=%d c(%d,%d)=%d \n",
+			//        mpi_rank_,
+			//        i,k,a.tiles_->count({i,k,host_num_}),
+			//        k,j,b.tiles_->count({k,j,host_num_}),
+			//        i,j,tiles_->count({i,j,host_num_}));
+			// The first iteration does C = alpha*A1*B1 + beta*C;
+			// The rest does C = alpha*Ak*Bk + C
+			if (k==0)
+			    (*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
+					       a(i,k), b(k,j), beta);
+			else 
+			    (*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
+					       a(i,k), b(k,j), 1.0);
 		    }
 		}
 	    }

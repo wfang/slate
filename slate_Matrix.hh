@@ -72,6 +72,7 @@ public:
     void copyTo_general(FloatType *a, int64_t lda);
     void copyFrom(FloatType *a, int64_t lda);
     void copyFromFull(FloatType *a, int64_t lda);
+    void copyFromFull_general(FloatType *a, int64_t lda);
 
     void gather();
     void gather_general();
