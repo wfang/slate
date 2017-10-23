@@ -1,6 +1,15 @@
 
-CFLAGS  = -O3 -std=c99
-CCFLAGS = -O3 -std=c++11
+CFLAGS  = -std=c99
+CCFLAGS = -std=c++11
+#--------------------------------------------
+# if debug
+ifeq (debug, $(filter debug,$(MAKECMDGOALS)))
+	CFLAGS += -O0 -g
+	CCFLAGS += -O0 -g
+else
+	CFLAGS += -O3
+	CCFLAGS += -O3
+endif
 
 #---------------------------------------------
 # if OpenMP
@@ -65,9 +74,13 @@ essl:
 cuda:
 	@echo built with CUDA
 
+debug:
+	@echo built with debug info and -O0
+
 linux macos:
 	$(CC) $(CFLAGS) -c -DMPI trace/trace.c -o trace/trace.o
-	$(CXX) $(CCFLAGS) app.cc trace/trace.o $(LIB) -o app
+	# $(CXX) $(CCFLAGS) app.cc trace/trace.o $(LIB) -o app
+	$(CXX) $(CCFLAGS) xmm.cc trace/trace.o $(LIB) -o xmm
 
 clean:
 	rm -rf app trace_*.svg

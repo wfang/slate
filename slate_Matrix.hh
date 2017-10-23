@@ -54,6 +54,10 @@ public:
 
     Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
            int64_t mb, int64_t nb, MPI_Comm mpi_comm, int64_t p, int64_t q);
+    Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
+	   int64_t mb, int64_t nb,
+	   MPI_Comm mpi_comm, MPI_Comm row_comm, MPI_Comm col_comm,
+	   int64_t p_, int64_t q_);
 
     Matrix(const Matrix &a, int64_t it, int64_t jt, int64_t mt, int64_t nt);
 
@@ -63,6 +67,7 @@ public:
     }
 
     void random();
+    void random_general();
     void copyTo(FloatType *a, int64_t lda);
     void copyFrom(FloatType *a, int64_t lda);
     void copyFromFull(FloatType *a, int64_t lda);
@@ -105,9 +110,16 @@ public:
 
     void potrf(blas::Uplo uplo, int64_t lookahead = 0);
 
+    void mm_summa(Matrix &a, Matrix &b, double alpha, double beta);
+
 private:
     MPI_Comm mpi_comm_;
     MPI_Group mpi_group_;
+
+    MPI_Comm mpi_comm_row_; // for row bcast
+    MPI_Comm mpi_comm_col_; // for col bcast
+    int p, q; // process grid pxq
+    int prow, pcol;
 
     int mpi_size_;
     int mpi_rank_;
@@ -327,13 +339,16 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
 template<typename FloatType>
 Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
                           int64_t mb, int64_t nb,
-                          MPI_Comm mpi_comm, int64_t p, int64_t q)
+                          MPI_Comm mpi_comm, MPI_Comm row_comm, MPI_Comm col_comm,
+			  int64_t p_, int64_t q_)
 {
     tiles_ = new std::map<std::tuple<int64_t, int64_t, int>, Tile<FloatType>*>;
     it_ = 0;
     jt_ = 0;
     mt_ = m % mb == 0 ? m/mb : m/mb+1;
     nt_ = n % nb == 0 ? n/nb : n/nb+1;
+    p = p_;
+    q = q_;
 
     mpi_comm_ = mpi_comm;
     assert(MPI_Comm_rank(mpi_comm_, &mpi_rank_) == MPI_SUCCESS);
@@ -352,6 +367,19 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
 
     tileRankFunc = [=] (int64_t i, int64_t j) { return i%p + (j%q)*p; };
 
+        // int prow, pcol;
+    // prow = mpi_rank_ % p;
+    // pcol = mpi_rank_ / p;
+    // The creation of MPI Comm must be outside of Matrix, as the comm
+    // must agree on all participating matrices.
+    // TODO: Wrap the communicators into a context.
+    // MPI_Comm_split(mpi_comm_, prow, pcol, &mpi_comm_row_);
+    // MPI_Comm_split(mpi_comm_, pcol, prow, &mpi_comm_col_);
+    mpi_comm_row_ = row_comm;
+    mpi_comm_col_ = col_comm;
+    prow = mpi_rank_ % p;
+    pcol = mpi_rank_ / p;
+    
     if (num_devices_ > 0) {
         tileDeviceFunc = [=] (int64_t i, int64_t j)
             { return j/q%num_devices_; };
@@ -386,10 +414,124 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
         assert(status == CUBLAS_STATUS_SUCCESS);
     }
 
-    if (a != nullptr)
-        copyTo(a, lda);
-    else
-        random();
+//  copyTo(a, lda);
+    random_general();
+    printf("Random matrix generated...\n");
+
+    omp_init_lock(tiles_lock_);
+
+    assert(num_devices_ <= MaxDevices);
+    for (int device = 0; device < num_devices_; ++device) {
+
+        cudaError_t error;
+
+        // Allocate host arrays.
+        error = cudaMallocHost((void**)(&a_array_h_[device]),
+                               sizeof(FloatType*)*MaxBatchArraySize);
+        assert(error == cudaSuccess);
+        error = cudaMallocHost((void**)(&b_array_h_[device]),
+                               sizeof(FloatType*)*MaxBatchArraySize);
+        assert(error == cudaSuccess);
+        error = cudaMallocHost((void**)(&c_array_h_[device]),
+                               sizeof(FloatType*)*MaxBatchArraySize);
+        assert(error == cudaSuccess);
+
+        // Set the device.
+        error = cudaSetDevice(device);
+        assert(error == cudaSuccess);
+
+        // Allocate device arrays.
+        error = cudaMalloc((void**)(&a_array_d_[device]),
+                           sizeof(FloatType*)*MaxBatchArraySize);
+        assert(error == cudaSuccess);
+        error = cudaMalloc((void**)(&b_array_d_[device]),
+                           sizeof(FloatType*)*MaxBatchArraySize);
+        assert(error == cudaSuccess);
+        error = cudaMalloc((void**)(&c_array_d_[device]),
+                           sizeof(FloatType*)*MaxBatchArraySize);
+        assert(error == cudaSuccess);
+    }
+}
+
+template<typename FloatType>
+Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
+                          int64_t mb, int64_t nb,
+                          MPI_Comm mpi_comm, 
+			  int64_t p_, int64_t q_)
+{
+    tiles_ = new std::map<std::tuple<int64_t, int64_t, int>, Tile<FloatType>*>;
+    it_ = 0;
+    jt_ = 0;
+    mt_ = m % mb == 0 ? m/mb : m/mb+1;
+    nt_ = n % nb == 0 ? n/nb : n/nb+1;
+    p = p_;
+    q = q_;
+
+    mpi_comm_ = mpi_comm;
+    assert(MPI_Comm_rank(mpi_comm_, &mpi_rank_) == MPI_SUCCESS);
+    assert(MPI_Comm_size(mpi_comm_, &mpi_size_) == MPI_SUCCESS);
+    assert(MPI_Comm_group(mpi_comm_, &mpi_group_) == MPI_SUCCESS);
+
+    host_num_ = omp_get_initial_device();
+#ifdef SLATE_WITH_CUDA
+    num_devices_ = omp_get_num_devices();
+#else
+    num_devices_ = 0;
+#endif
+
+    tileMbFunc = [=] (int64_t i) { return i*mb > m ? m%mb : mb; };
+    tileNbFunc = [=] (int64_t j) { return j*nb > n ? n%nb : nb; };
+
+    tileRankFunc = [=] (int64_t i, int64_t j) { return i%p + (j%q)*p; };
+
+        // int prow, pcol;
+    // prow = mpi_rank_ % p;
+    // pcol = mpi_rank_ / p;
+    // The creation of MPI Comm must be outside of Matrix, as the comm
+    // must agree on all participating matrices.
+    // TODO: Wrap the communicators into a context.
+    // MPI_Comm_split(mpi_comm_, prow, pcol, &mpi_comm_row_);
+    // MPI_Comm_split(mpi_comm_, pcol, prow, &mpi_comm_col_);
+    // mpi_comm_row_ = row_comm;
+    // mpi_comm_col_ = col_comm;
+    
+    if (num_devices_ > 0) {
+        tileDeviceFunc = [=] (int64_t i, int64_t j)
+            { return j/q%num_devices_; };
+    }
+    else {
+        tileDeviceFunc = [=] (int64_t i, int64_t j)
+            { return host_num_; };
+    }
+
+    for (int device = 0; device < num_devices_; ++device) {
+
+        cudaError_t error;
+        cublasStatus_t status;
+
+        error = cudaSetDevice(device);
+        assert(error == cudaSuccess);
+
+        error = cudaStreamCreate(&gemm_stream_[device]);
+        // error = cudaStreamCreateWithFlags(&gemm_stream_[device],
+        //                                   cudaStreamNonBlocking);
+        assert(error == cudaSuccess);
+
+        error = cudaStreamCreate(&comm_stream_[device]);
+        // error = cudaStreamCreateWithFlags(&gemm_stream_[device],
+        //                                   cudaStreamNonBlocking);
+        assert(error == cudaSuccess);
+
+        status = cublasCreate(&cublas_handle_[device]);
+        assert(status == CUBLAS_STATUS_SUCCESS);
+
+        status = cublasSetStream(cublas_handle_[device], gemm_stream_[device]);
+        assert(status == CUBLAS_STATUS_SUCCESS);
+    }
+
+//  copyTo(a, lda);
+    random();
+    printf("Random matrix generated...\n");
 
     omp_init_lock(tiles_lock_);
 
@@ -463,6 +605,32 @@ void Matrix<FloatType>::random()
                     for (int64_t k = 0; k < nb; ++k)
                     tile->data_[k*nb+k] += nb*nt_;
                 }
+                (*this)(i, j) = tile;
+            }
+        }
+    }
+}
+// TODO: random() is for symmetric positive definite;
+// this is for general
+template<typename FloatType>
+void Matrix<FloatType>::random_general()
+{
+    for (int64_t i = 0; i < mt_; ++i) {
+        for (int64_t j = 0; j <= nt_; ++j) {
+            if (tileIsLocal(i, j))
+            {
+                Tile<FloatType> *tile =
+                    new Tile<FloatType>(tileMb(i), tileNb(j));
+
+                int iseed[4];
+                iseed[0] = i & 0x0FFF;
+                iseed[1] = j & 0x0FFF;
+                iseed[2] = ((i >> 12) + (j >> 12)) & 0x0FFF;
+                iseed[3] = 1;
+                int nb = tileNb(0);
+                lapack::larnv(1, iseed, nb*nb, tile->data_);
+
+
                 (*this)(i, j) = tile;
             }
         }

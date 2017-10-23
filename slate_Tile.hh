@@ -24,11 +24,7 @@
     #include "slate_NoMpi.hh"
 #endif
 
-#ifdef SLATE_WITH_OPENMP
-    #include <omp.h>
-#else
-    #include "slate_NoOpenmp.hh"
-#endif
+#include <omp.h>
 
 extern "C" void trace_cpu_start();
 extern "C" void trace_cpu_stop(const char *color);
@@ -131,7 +127,11 @@ public:
                     tile->deallocate();
             }
     }
-
+    Tile()
+    {
+	printf("Tile(): this should not happen!\n");
+	assert(0);
+    }
     Tile(int64_t mb, int64_t nb)
         : mb_(mb), nb_(nb), device_num_(host_num_), life_(0)
     {
