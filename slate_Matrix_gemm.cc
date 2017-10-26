@@ -1,5 +1,6 @@
 // TODO: support transa, transb
 // #include <omp.h>
+#include "slate_Matrix.hh"
 
 namespace slate {
     
@@ -13,7 +14,7 @@ void Matrix<FloatType>::copyTo_general(FloatType *a, int64_t lda)
             if (tileIsLocal(i, j))
                 (*this)(i, j) =
                     new Tile<FloatType>(tileMb(i), tileNb(j),
-                                        &a[(size_t)lda*n+m], lda);
+                                        &a[(size_t)lda*n+m], lda, memory_);
             n += tileNb(j);
         }
         m += tileMb(i);
@@ -61,7 +62,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 	    if ((i+it_)%p == prow) {
 		if (!a.tileIsLocal(i,k)) {
 		    // allocate temp tile to receive
-		    auto *tile = new Tile<FloatType>(a.tileMb(i),a.tileNb(k));
+		    auto *tile = new Tile<FloatType>(a.tileMb(i),a.tileNb(k),a.memory_);
 		    a(i,k) = tile;
 		}
 #pragma omp task depend(out:adep[i*M + k]) shared(a,b)
@@ -89,7 +90,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		// printf("R%d j%d 
 		if (!b.tileIsLocal(k,j)) {
 		    // printf("creating new tile...\n");
-		    auto *tile = new Tile<FloatType>(b.tileMb(k), b.tileNb(j));
+		    auto *tile = new Tile<FloatType>(b.tileMb(k), b.tileNb(j),b.memory_);
 		    b(k,j) = tile;
 		}
 #pragma omp task depend(out:bdep[k*K + j]) shared(a,b)
@@ -145,5 +146,14 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 	#pragma omp taskwait
     }
 }
+
+
+template
+void Matrix<double>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta);
+template
+void Matrix<double>::copyFromFull_general(double *a, int64_t lda);
+template
+void Matrix<double>::copyTo_general(double *a, int64_t lda);
+
 
 }

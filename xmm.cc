@@ -1,6 +1,6 @@
 
 #include "slate_Matrix.hh"
-#include "slate_mm.hh"
+// #include "slate_mm.hh"
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -94,9 +94,9 @@ int main (int argc, char *argv[])
 
 //  slate::Matrix<double> a(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, p, q);
     printf("creating matrix\n");
-    slate::Matrix<double> a(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
-    slate::Matrix<double> b(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
-    slate::Matrix<double> c(n, n, a1, lda, nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
+    slate::Matrix<double> a(n, n, a1, lda,  nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
+    slate::Matrix<double> b(n, n, a1, lda,  nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
+    slate::Matrix<double> c(n, n, a1, lda,  nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
     printf("R%d: matrix created: # tiles: a %d, b %d, c %d\n",
 	   mpi_rank, a.tiles_->size(), b.tiles_->size(), c.tiles_->size());
     trace_on();

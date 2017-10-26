@@ -16,6 +16,8 @@ endif
 ifeq (openmp,$(filter openmp,$(MAKECMDGOALS)))
 	CCFLAGS += -DSLATE_WITH_OPENMP
 	CCFLAGS += -fopenmp
+else
+	SRC += slate_NoOpenmp.cc
 endif
 
 #------------------------------------------------------
@@ -27,6 +29,8 @@ ifeq (mpi,$(filter mpi,$(MAKECMDGOALS)))
 else ifeq (spectrum,$(filter spectrum,$(MAKECMDGOALS)))
 	CCFLAGS += -DSLATE_WITH_MPI
 	LIB += -lmpi_ibm
+else
+	SRC += slate_NoMpi.cc
 endif
 
 #-----------------------------------------------------------------------------
@@ -53,9 +57,22 @@ endif
 ifeq (cuda,$(filter cuda,$(MAKECMDGOALS)))
 	CCFLAGS += -DSLATE_WITH_CUDA
 	LIB += -lcublas -lcudart
+else
+	SRC += slate_NoCuda.cc
+	SRC += slate_NoCublas.cc
 endif
 
 #-------------------------------------------------------------------------------
+SRC += blas.cc \
+       lapack.cc \
+       slate_Matrix_potrf.cc \
+       slate_Matrix_syrk.cc \
+       slate_Matrix_gemm.cc
+
+OBJ = $(SRC:.cc=.o)
+debug:
+	@echo "built with debug info (-g -O0)"
+
 openmp:
 	@echo built with OpenMP
 
@@ -74,13 +91,14 @@ essl:
 cuda:
 	@echo built with CUDA
 
-debug:
-	@echo built with debug info and -O0
-
-linux macos:
-	$(CC) $(CFLAGS) -c -DMPI trace/trace.c -o trace/trace.o
-	# $(CXX) $(CCFLAGS) app.cc trace/trace.o $(LIB) -o app
-	$(CXX) $(CCFLAGS) xmm.cc trace/trace.o $(LIB) -o xmm
+linux macos: $(OBJ)
+	$(CC) $(CFLAGS) -c trace/trace.c -o trace/trace.o
+	$(CXX) $(CCFLAGS) $(OBJ) app.cc trace/trace.o $(LIB) -o app
+	$(CXX) $(CCFLAGS) $(OBJ) xmm.cc trace/trace.o $(LIB) -o xmm
 
 clean:
-	rm -rf app trace_*.svg
+	rm -f $(OBJ)
+	rm -f app app.o trace_*.svg
+
+.cc.o:
+	$(CXX) $(CCFLAGS) -c $< -o $@

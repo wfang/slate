@@ -3,6 +3,7 @@
 #define SLATE_MATRIX_HH
 
 #include "slate_Tile.hh"
+#include "slate_Memory.hh"
 
 #include "lapack.hh"
 
@@ -45,15 +46,15 @@ public:
     int64_t mt_; ///< number of tile rows
     int64_t nt_; ///< number of tile columns
 
-    // TODO: replace by unordered_map
     std::map<std::tuple<int64_t, int64_t, int>, Tile<FloatType>*> *tiles_;
     omp_lock_t *tiles_lock_ = new omp_lock_t();
+
 
     Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
            int64_t mb, int64_t nb);
 
     Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
-           int64_t mb, int64_t nb, MPI_Comm mpi_comm, int64_t p, int64_t q);
+           int64_t nb, MPI_Comm mpi_comm, int64_t p, int64_t q);
     Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
 	   int64_t mb, int64_t nb,
 	   MPI_Comm mpi_comm, MPI_Comm row_comm, MPI_Comm col_comm,
@@ -114,8 +115,12 @@ public:
     void potrf(blas::Uplo uplo, int64_t lookahead = 0);
 
     void mm_summa(Matrix &a, Matrix &b, double alpha, double beta);
-
+    Memory *memory_;
 private:
+    // TODO: replace by unordered_map
+
+
+
     MPI_Comm mpi_comm_;
     MPI_Group mpi_group_;
 
@@ -204,10 +209,7 @@ private:
     //----------------------------------------------------------
     void tileCopyToDevice(int64_t i, int64_t j, int dst_device);
     void tileMoveToDevice(int64_t i, int64_t j, int dst_device);
-
-//  void tileCopyToHost(int64_t i, int64_t j, int src_device);
     void tileMoveToHost(int64_t i, int64_t j, int src_device);
-
     void tileErase(int64_t i, int64_t j, int device);
 
     void checkLife();
@@ -259,17 +261,6 @@ void Matrix<FloatType>::tileMoveToDevice(int64_t i, int64_t j, int dst_device)
 }
 
 //------------------------------------------------------------------------------
-// template<typename FloatType>
-// void Matrix<FloatType>::tileCopyToHost(int64_t i, int64_t j, int src_device)
-// {
-//     omp_set_lock(tiles_lock_);
-//     Tile<FloatType> *src_tile = (*tiles_)[{it_+i, jt_+j, src_device}];
-//     (*tiles_)[{it_+i, jt_+j, host_num_}] = 
-//         new Tile<FloatType>(src_tile, host_num_);
-//     omp_unset_lock(tiles_lock_);
-// }
-
-//------------------------------------------------------------------------------
 // @brief Move the tile to the host, if not already there.
 //        If it's already been moved, it won't be moved again.
 //
@@ -308,36 +299,6 @@ void Matrix<FloatType>::tileErase(int64_t i, int64_t j, int device)
     }
     omp_unset_lock(tiles_lock_);
 }
-
-//------------------------------------------------------------------------------
-template<typename FloatType>
-Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
-                          int64_t mb, int64_t nb)
-{
-    // tiles_ = new std::map<std::tuple<int64_t, int64_t, int>, Tile<FloatType>*>;
-    // it_ = 0;
-    // jt_ = 0;
-    // mt_ = m % mb == 0 ? m/mb : m/mb+1;
-    // nt_ = n % nb == 0 ? n/nb : n/nb+1;
-
-    // tileRankFunc = [] (int64_t i, int64_t j) { return 0; };
-    // tileDeviceFunc = [=] (int64_t i, int64_t j) { return j%num_devices_; };
-    // tileMbFunc = [=] (int64_t i) { return (it_+i)*mb > m ? m%mb : mb; };
-    // tileNbFunc = [=] (int64_t j) { return (jt_+j)*nb > n ? n%nb : nb; };
-
-    // host_num_ = omp_get_initial_device();
-    // num_devices_ = omp_get_num_devices();
-
-    // if (num_devices_ > 0) {
-    //     cublasStatus_t status = cublasCreate(&cublas_handle_);
-    //     assert(status == CUBLAS_STATUS_SUCCESS);
-    // }
-
-    // copyTo(a, lda);
-
-    // omp_init_lock(tiles_lock_);
-}
-
 //------------------------------------------------------------------------------
 template<typename FloatType>
 Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
@@ -346,6 +307,7 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
 			  int64_t p_, int64_t q_)
 {
     tiles_ = new std::map<std::tuple<int64_t, int64_t, int>, Tile<FloatType>*>;
+    memory_ = new Memory(sizeof(FloatType)*nb*nb, 0);
     it_ = 0;
     jt_ = 0;
     mt_ = m % mb == 0 ? m/mb : m/mb+1;
@@ -461,19 +423,18 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
     }
 }
 
+//------------------------------------------------------------------------------
 template<typename FloatType>
 Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
-                          int64_t mb, int64_t nb,
-                          MPI_Comm mpi_comm, 
-			  int64_t p_, int64_t q_)
+                          int64_t nb, MPI_Comm mpi_comm, int64_t p, int64_t q)
 {
     tiles_ = new std::map<std::tuple<int64_t, int64_t, int>, Tile<FloatType>*>;
+    memory_ = new Memory(sizeof(FloatType)*nb*nb, 0);
+
     it_ = 0;
     jt_ = 0;
-    mt_ = m % mb == 0 ? m/mb : m/mb+1;
+    mt_ = m % nb == 0 ? m/nb : m/nb+1;
     nt_ = n % nb == 0 ? n/nb : n/nb+1;
-    p = p_;
-    q = q_;
 
     mpi_comm_ = mpi_comm;
     assert(MPI_Comm_rank(mpi_comm_, &mpi_rank_) == MPI_SUCCESS);
@@ -487,13 +448,11 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
     num_devices_ = 0;
 #endif
 
-    tileMbFunc = [=] (int64_t i) { return i*mb > m ? m%mb : mb; };
+    tileMbFunc = [=] (int64_t i) { return i*nb > m ? m%nb : nb; };
     tileNbFunc = [=] (int64_t j) { return j*nb > n ? n%nb : nb; };
 
     tileRankFunc = [=] (int64_t i, int64_t j) { return i%p + (j%q)*p; };
 
-
-    
     if (num_devices_ > 0) {
         tileDeviceFunc = [=] (int64_t i, int64_t j)
             { return j/q%num_devices_; };
@@ -528,13 +487,10 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
         assert(status == CUBLAS_STATUS_SUCCESS);
     }
 
-//  copyTo(a, lda);
     if (a != nullptr)
         copyTo(a, lda);
     else
         random();
-    // random();
-    printf("Random matrix generated...\n");
 
     omp_init_lock(tiles_lock_);
 
@@ -594,7 +550,7 @@ void Matrix<FloatType>::random()
             if (tileIsLocal(i, j))
             {
                 Tile<FloatType> *tile =
-                    new Tile<FloatType>(tileMb(i), tileNb(j));
+                    new Tile<FloatType>(tileMb(i), tileNb(j), memory_);
 
                 int iseed[4];
                 iseed[0] = i & 0x0FFF;
@@ -651,7 +607,7 @@ void Matrix<FloatType>::copyTo(FloatType *a, int64_t lda)
             if (tileIsLocal(i, j))
                 (*this)(i, j) =
                     new Tile<FloatType>(tileMb(i), tileNb(j),
-                                        &a[(size_t)lda*n+m], lda);
+                                        &a[(size_t)lda*n+m], lda, memory_);
             n += tileNb(j);
         }
         m += tileMb(i);
@@ -728,293 +684,7 @@ void Matrix<FloatType>::gather_general()
 }
 
 //------------------------------------------------------------------------------
-template<typename FloatType>
-void Matrix<FloatType>::syrkTask(blas::Uplo uplo, blas::Op trans,
-                                 FloatType alpha, const Matrix &that,
-                                 FloatType beta)
-{
-    using namespace blas;
 
-    Matrix<FloatType> c = *this;
-    Matrix<FloatType> a = that;
-
-    // Lower, NoTrans
-    for (int64_t n = 0; n < c.nt_; ++n) {
-
-        for (int64_t k = 0; k < a.nt_; ++k)
-            #pragma omp task
-            if (c.tileIsLocal(n, n)) {
-                a.tileWait(n, k);
-                c(n, n)->syrk(uplo, trans, -1.0, a(n, k), k == 0 ? beta : 1.0);
-            }
-
-        for (int64_t m = n+1; m < c.mt_; ++m)
-            for (int64_t k = 0; k < a.nt_; ++k)
-                #pragma omp task
-                if (c.tileIsLocal(m, n)) {
-                    a.tileWait(m, k);
-                    a.tileWait(n, k);
-                    c(m, n)->gemm(trans, Op::Trans,
-                                  alpha, a(m, k), a(n, k), k == 0 ? beta : 1.0);
-                }
-    }
-    #pragma omp taskwait
-}
-
-//------------------------------------------------------------------------------
-template<typename FloatType>
-void Matrix<FloatType>::syrkNest(blas::Uplo uplo, blas::Op trans,
-                                 FloatType alpha, const Matrix &that,
-                                 FloatType beta)
-{
-    using namespace blas;
-
-    Matrix<FloatType> c = *this;
-    Matrix<FloatType> a = that;
-
-    for (int64_t n = 0; n < c.nt_; ++n) {
-        for (int64_t k = 0; k < a.nt_; ++k)
-            #pragma omp task
-            if (c.tileIsLocal(n, n)) {
-                a.tileWait(n, k);
-                c(n, n)->syrk(uplo, trans, -1.0, a(n, k), k == 0 ? beta : 1.0);
-            }
-    }
-
-//  #pragma omp parallel for collapse(3) schedule(dynamic, 1) num_threads(60)
-    #pragma omp parallel for collapse(3) schedule(dynamic, 1)
-    for (int64_t n = 0; n < c.nt_; ++n) {
-        for (int64_t m = 0; m < c.mt_; ++m)
-            for (int64_t k = 0; k < a.nt_; ++k)
-                if (m >= n+1)
-                    if (c.tileIsLocal(m, n)) {
-                        a.tileWait(m, k);
-                        a.tileWait(n, k);
-                        c(m, n)->gemm(trans, Op::Trans,
-                                      alpha, a(m, k), a(n, k),
-                                      k == 0 ? beta : 1.0);
-                    }
-    }
-    #pragma omp taskwait
-}
-
-//------------------------------------------------------------------------------
-template<typename FloatType>
-void Matrix<FloatType>::syrkBatch(blas::Uplo uplo, blas::Op trans,
-                                  FloatType alpha, const Matrix &that,
-                                  FloatType beta)
-{
-    using namespace blas;
-
-    Matrix<FloatType> c = *this;
-    Matrix<FloatType> a = that;
-
-    // syrk tasks
-    for (int64_t n = 0; n < c.nt_; ++n) {
-        for (int64_t k = 0; k < a.nt_; ++k)
-            #pragma omp task
-            if (c.tileIsLocal(n, n)) {
-                a.tileWait(n, k);
-                c(n, n)->syrk(uplo, trans, -1.0, a(n, k), k == 0 ? beta : 1.0);
-            }
-    }
-
-    CBLAS_TRANSPOSE transa_array[1];
-    CBLAS_TRANSPOSE transb_array[1];
-    int m_array[1];
-    int n_array[1];
-    int k_array[1];
-    FloatType alpha_array[1];
-    const FloatType **a_array;
-    int lda_array[1];
-    const FloatType **b_array;
-    int ldb_array[1];
-    FloatType beta_array[1];
-    FloatType **c_array;
-    int ldc_array[1];
-
-    int nb = tileNb(0);
-    transa_array[0] = CblasNoTrans;
-    transb_array[0] = CblasTrans;
-    m_array[0] = nb;
-    n_array[0] = nb;
-    k_array[0] = nb;
-    alpha_array[0] = alpha;
-    lda_array[0] = nb;
-    ldb_array[0] = nb;
-    beta_array[0] = beta;
-    ldc_array[0] = nb;
-
-    // Wait for remote tiles.
-    // Compute group size.
-    int group_size = 0;
-    for (int64_t n = 0; n < c.nt_; ++n)
-        for (int64_t m = n+1; m < c.mt_; ++m)
-            for (int64_t k = 0; k < a.nt_; ++k)
-                if (c.tileIsLocal(m, n)) {
-                    a.tileWait(m, k);
-                    a.tileWait(n, k);
-                    ++group_size;
-                }
-
-    a_array = new const FloatType*[group_size];
-    b_array = new const FloatType*[group_size];
-    c_array = new FloatType*[group_size];
-
-    int i = 0;
-    for (int64_t n = 0; n < c.nt_; ++n)
-        for (int64_t m = n+1; m < c.mt_; ++m)
-            for (int64_t k = 0; k < a.nt_; ++k)
-                if (c.tileIsLocal(m, n)) {
-                    a_array[i] = a(m, k)->data_;
-                    b_array[i] = a(n, k)->data_;
-                    c_array[i] = c(m, n)->data_;
-                    ++i;
-                }
-
-    trace_cpu_start();
-//  mkl_set_num_threads_local(60);
-    cblas_dgemm_batch(CblasColMajor, transa_array, transb_array,
-                      m_array, n_array, k_array, alpha_array,
-                      a_array, lda_array, b_array, ldb_array, beta_array,
-                      c_array, ldc_array, 1, &group_size);
-//  mkl_set_num_threads_local(1);
-    trace_cpu_stop("DarkGreen");
-
-    delete[] a_array;
-    delete[] b_array;
-    delete[] c_array;
-
-    #pragma omp taskwait
-}
-
-//------------------------------------------------------------------------------
-template<typename FloatType>
-void Matrix<FloatType>::syrkAcc(blas::Uplo uplo, blas::Op trans,
-                                FloatType alpha, const Matrix &that,
-                                FloatType beta)
-{
-    using namespace blas;
-
-    Matrix<FloatType> c = *this;
-    Matrix<FloatType> a = that;
-
-    // Wait for MPI.
-    for (int64_t n = 0; n < c.nt_; ++n)
-        for (int64_t m = n+1; m < c.mt_; ++m)
-            for (int64_t k = 0; k < a.nt_; ++k)
-                if (c.tileIsLocal(m, n)) {
-                    a.tileWait(m, k);
-                    a.tileWait(n, k);
-                }
-
-    for (int device = 0; device < num_devices_; ++device)
-        #pragma omp task priority (1)
-        {
-            trace_cpu_start();
-            int64_t i = 0;
-            for (int64_t n = 0; n < c.nt_; ++n)
-                for (int64_t m = n+1; m < c.mt_; ++m)
-                    for (int64_t k = 0; k < a.nt_; ++k)
-                        if (c.tileIsLocal(m, n))
-                            if (device == tileDevice(m, n)) {
-                                c.tileMoveToDevice(m, n, device);
-                                a.tileCopyToDevice(m, k, device);
-                                a.tileCopyToDevice(n, k, device);
-                                a_array_h_[device][i] = a(m, k, device)->data_;
-                                b_array_h_[device][i] = a(n, k, device)->data_;
-                                c_array_h_[device][i] = c(m, n, device)->data_;
-                                ++i;
-                            }
-            int64_t batch_count = i;
-            trace_cpu_stop("LightGray");
-
-            cudaError_t error;
-            error = cudaSetDevice(device);
-            assert(error == cudaSuccess);
-
-            error = cudaMemcpyAsync(a_array_d_[device], a_array_h_[device],
-                                    sizeof(FloatType*)*batch_count,
-                                    cudaMemcpyHostToDevice,
-                                    gemm_stream_[device]);
-            assert(error == cudaSuccess);
-            error = cudaMemcpyAsync(b_array_d_[device], b_array_h_[device],
-                                    sizeof(FloatType*)*batch_count,
-                                    cudaMemcpyHostToDevice,
-                                    gemm_stream_[device]);
-            assert(error == cudaSuccess);
-            error = cudaMemcpyAsync(c_array_d_[device], c_array_h_[device],
-                                    sizeof(FloatType*)*batch_count,
-                                    cudaMemcpyHostToDevice,
-                                    gemm_stream_[device]);
-            assert(error == cudaSuccess);
-
-            trace_cpu_start();
-            int nb = tileNb(0);
-            cublasStatus_t status =
-                cublasDgemmBatched(
-                    cublas_handle_[device],
-                    CUBLAS_OP_N, CUBLAS_OP_T,
-                    nb, nb, nb,
-                    &alpha, a_array_d_[device], nb,
-                            b_array_d_[device], nb,
-                    &beta,  c_array_d_[device], nb,
-                    batch_count);
-            assert(status == CUBLAS_STATUS_SUCCESS);
-            error = cudaStreamSynchronize(gemm_stream_[device]);
-            assert(error == cudaSuccess);
-            trace_cpu_stop("PaleGreen");
-
-            for (int64_t n = 0; n < c.nt_; ++n)
-                for (int64_t m = n+1; m < c.mt_; ++m)
-                    for (int64_t k = 0; k < a.nt_; ++k)
-                        if (c.tileIsLocal(m, n))
-                            if (device == tileDevice(m, n)) {
-                                a(m, k)->tick();
-                                a(n, k)->tick();
-                                a.tileErase(m, k, device);
-                                a.tileErase(n, k, device);
-                            }
-        }
-
-    // host syrk on diagonal tiles
-    for (int64_t n = 0; n < c.nt_; ++n)
-        for (int64_t k = 0; k < a.nt_; ++k)
-            if (c.tileIsLocal(n, n))
-                #pragma omp task
-                {
-                    a.tileWait(n, k);
-                    c(n, n)->syrk(uplo, trans, -1.0, a(n, k), k == 0 ? beta : 1.0);
-                }
-
-    #pragma omp taskwait
-}
-
-//------------------------------------------------------------------------------
-template<typename FloatType>
-void Matrix<FloatType>::trsm(blas::Side side, blas::Uplo uplo,
-                             blas::Op trans, blas::Diag diag,
-                             FloatType alpha, const Matrix &a)
-{
-    using namespace blas;
-
-    Matrix<FloatType> b = *this;
-
-    // Right, Lower, Trans
-    for (int64_t k = 0; k < b.nt_; ++k) {
-
-        for (int64_t m = 0; m < b.mt_; ++m) {
-            #pragma omp task
-            b(m, k)->trsm(side, uplo, trans, diag, 1.0, a(k, k)); 
-
-            for (int64_t n = k+1; n < b.nt_; ++n)
-                #pragma omp task
-                b(m, n)->gemm(Op::NoTrans, trans,
-                              -1.0/alpha, b(m, k), a(n, k), 1.0);
-        }
-    }
-    #pragma omp taskwait
-}
 
 //------------------------------------------------------------------------------
 template<typename FloatType>
@@ -1033,7 +703,7 @@ void Matrix<FloatType>::tileSend(int64_t i, int64_t j, int dest)
 template<typename FloatType>
 void Matrix<FloatType>::tileRecv(int64_t i, int64_t j, int src)
 {
-    Tile<FloatType> *tile = new Tile<FloatType>(tileMb(i), tileNb(j));
+    Tile<FloatType> *tile = new Tile<FloatType>(tileMb(i), tileNb(j), memory_);
     (*this)(i, j) = tile;
     int count = tile->mb_*tile->nb_;
     int tag = 0;
@@ -1054,7 +724,7 @@ void Matrix<FloatType>::tileBcast(int64_t i, int64_t j)
         tile = (*this)(i, j);
     }
     else {
-        tile = new Tile<FloatType>(tileMb(i), tileNb(j));
+        tile = new Tile<FloatType>(tileMb(i), tileNb(j), memory_);
         (*this)(i, j) = tile;
     }
 
@@ -1084,7 +754,7 @@ void Matrix<FloatType>::tileIbcast(int64_t i, int64_t j,
 
             // Create the tile.
             Tile<FloatType> *tile;
-            tile = new Tile<FloatType>(tileMb(i), tileNb(j));
+            tile = new Tile<FloatType>(tileMb(i), tileNb(j), memory_);
             (*this)(i, j) = tile;
 
             // Find the tile's life.
@@ -1116,7 +786,7 @@ void Matrix<FloatType>::tileIbcast(int64_t i, int64_t j,
 
             // Create the tile.
             Tile<FloatType> *tile;
-            tile = new Tile<FloatType>(tileMb(i), tileNb(j));
+            tile = new Tile<FloatType>(tileMb(i), tileNb(j), memory_);
             (*this)(i, j) = tile;
 
             // Find the tile's life.
@@ -1321,89 +991,6 @@ void Matrix<FloatType>::printLife()
             printf("\n");
         }
     }
-}
-
-//------------------------------------------------------------------------------
-template<typename FloatType>
-void Matrix<FloatType>::potrf(blas::Uplo uplo, int64_t lookahead)
-{
-    printf("==== POTRF: lookahead    = %d\n", lookahead);
-    printf("==== SLATE: num_devices_ = %d\n", num_devices_);
-
-    using namespace blas;
-
-    Matrix<FloatType> a = *this;
-    uint8_t *column;    
-
-    #pragma omp parallel
-    #pragma omp master
-    for (int64_t k = 0; k < nt_; ++k) {
-        // panel
-        #pragma omp task depend(inout:column[k])
-        {
-            if (tileIsLocal(k, k)) {
-                a(k, k)->potrf(uplo);
-            }
-
-            if (k < nt_-1)
-                tileIbcast(k, k, {k+1, nt_-1, k, k});
-
-            for (int64_t m = k+1; m < nt_; ++m) {
-
-                #pragma omp task
-                if (tileIsLocal(m, k)) {
-                    tileWait(k, k);
-                    a.tileMoveToHost(m, k, tileDevice(m, k));
-                    a(m, k)->trsm(Side::Right, Uplo::Lower,
-                                  Op::Trans, Diag::NonUnit,
-                                  1.0, a(k, k));
-                }
-            }
-            #pragma omp taskwait
-
-            for (int64_t m = k+1; m < nt_; ++m)
-                tileIbcast(m, k, {m, m, k+1, m},
-                                 {m, nt_-1, m, m});
-        }
-        // trailing submatrix
-        if (k+1+lookahead < nt_) {
-            #pragma omp task depend(in:column[k]) \
-                             depend(inout:column[k+1+lookahead]) \
-                             depend(inout:column[nt_-1])
-            Matrix(a, k+1+lookahead, k+1+lookahead,
-                   nt_-1-k-lookahead, nt_-1-k-lookahead).syrkNest(
-                Uplo::Lower, Op::NoTrans,
-                -1.0, Matrix(a, k+1+lookahead, k, nt_-1-k-lookahead, 1), 1.0);
-        }
-        // lookahead column(s)
-        for (int64_t n = k+1; n < k+1+lookahead && n < nt_; ++n) {
-            #pragma omp task depend(in:column[k]) \
-                             depend(inout:column[n])
-            {
-                #pragma omp task
-                if (tileIsLocal(n, n)) {
-                    tileWait(n, k);
-                    a(n, n)->syrk(Uplo::Lower, Op::NoTrans,
-                                  -1.0, a(n, k), 1.0);
-                }
-
-                for (int64_t m = n+1; m < nt_; ++m) {
-                    #pragma omp task
-                    if (tileIsLocal(m, n)) {
-                        tileWait(m, k);
-                        tileWait(n, k);
-                        a.tileMoveToHost(m, n, tileDevice(m, n));
-                        a(m, n)->gemm(Op::NoTrans, Op::Trans,
-                                      -1.0, a(m, k), a(n, k), 1.0);
-                    }
-                }
-                #pragma omp taskwait
-            }
-        }
-    }
-
-    a.checkLife();
-    a.printLife();
 }
 
 } // namespace slate
