@@ -68,6 +68,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 #pragma omp task depend(out:adep[i*M + k]) shared(a,b)
                 // #pragma omp task shared(a,b)
 		{
+		    trace_cpu_start();
 		    Tile<FloatType>  *tile = a(i,k);
 		    int count = tile->mb_*tile->nb_;
 		    // TODO: hardcoded 2d block cyclic distribution
@@ -77,6 +78,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		    err = MPI_Bcast(tile->data_, count, MPI_DOUBLE,
 				    (jt_+k)%q, mpi_comm_row_);
 		    assert(err == MPI_SUCCESS);
+		    trace_cpu_stop("Red");
 		}
 	    }
 	}
@@ -97,6 +99,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
                 // #pragma omp task shared(a,b)
 		{
 		    // printf("accessing a(%d,%d)..\n", k, j);
+		    trace_cpu_start();
 		    Tile<FloatType> *tile = b(k,j);
 		    int count = tile->mb_*tile->nb_;
 		    int err;
@@ -104,6 +107,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		    err = MPI_Bcast(tile->data_, count, MPI_DOUBLE,
 				    (it_+k)%p, mpi_comm_col_);
 		    assert(err == MPI_SUCCESS);
+		    trace_cpu_stop("Orange");
 		}
 	    }
 	}
