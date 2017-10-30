@@ -1,4 +1,3 @@
-
 CFLAGS  = -std=c99
 CCFLAGS = -std=c++11
 #--------------------------------------------
@@ -48,7 +47,7 @@ ifeq (mkl,$(filter mkl,$(MAKECMDGOALS)))
 	endif
 # if ESSL
 else ifeq (essl,$(filter essl,$(MAKECMDGOALS)))
-	CCFLAGS += -DSLATE_WITH_ESSL
+	CCFLAGS += -DSLATE_WITH_ESSL 
 	LIB += -lessl -llapack
 endif
 
@@ -92,7 +91,7 @@ cuda:
 	@echo built with CUDA
 
 linux macos: $(OBJ)
-	$(CC) $(CFLAGS) -c trace/trace.c -o trace/trace.o
+	$(CC) $(CFLAGS) -DMPI -c trace/trace.c -o trace/trace.o
 	$(CXX) $(CCFLAGS) $(OBJ) app.cc trace/trace.o $(LIB) -o app
 	$(CXX) $(CCFLAGS) $(OBJ) xmm.cc trace/trace.o $(LIB) -o xmm
 

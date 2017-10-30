@@ -127,6 +127,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		    // }
 		    // printf("\n");
 		    if (tileIsLocal(i,j)) {
+			printf("Updating C(%d,%d) on rank %d\n", i, j, mpi_rank_);
 			// printf("rank %d count a(%d,%d)=%d b(%d,%d)=%d c(%d,%d)=%d \n",
 			//        mpi_rank_,
 			//        i,k,a.tiles_->count({i,k,host_num_}),

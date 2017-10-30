@@ -13,7 +13,13 @@
     #include "slate_NoMpi.hh"
 #endif
 
-#include <omp.h>
+
+
+#ifdef SLATE_WITH_OPENMP
+    #include <omp.h>
+#else
+    #include "slate_NoOpenmp.hh"
+#endif
 
 extern "C" void trace_on();
 extern "C" void trace_off();
@@ -24,6 +30,14 @@ void diff_lapack_matrices(int64_t m, int64_t n, double *a, int64_t lda,
                           double *b, int64_t ldb,
                           int64_t mb, int64_t nb);
 
+
+void print_envinfo()
+{
+    int tnum = omp_get_num_threads();
+    int pnum;
+    MPI_Comm_size(MPI_COMM_WORLD, &pnum);
+    printf("OpenMP threads: %d, MPI Ranks: %d\n", tnum, pnum);
+}
 //------------------------------------------------------------------------------
 int main (int argc, char *argv[])
 {
@@ -63,6 +77,8 @@ int main (int argc, char *argv[])
     err = MPI_Comm_split(MPI_COMM_WORLD, pcol, prow, &col_comm);
     assert(err==MPI_SUCCESS);
 
+    print_envinfo();
+
     double *a1 = nullptr;
     // double *a2 = nullptr;
     // double *b2 = nullptr;
@@ -101,18 +117,19 @@ int main (int argc, char *argv[])
 	   mpi_rank, a.tiles_->size(), b.tiles_->size(), c.tiles_->size());
     trace_on();
 
-    trace_cpu_start();
+    // trace_cpu_start();
     MPI_Barrier(MPI_COMM_WORLD);
-    trace_cpu_stop("Black");
+    // trace_cpu_stop("Black");
 
     double start = omp_get_wtime();
     // a.potrf(blas::Uplo::Lower, lookahead);
     double alpha = 1.0, beta = 0.0;
-
-    trace_cpu_start();
-    MPI_Barrier(MPI_COMM_WORLD);
-    trace_cpu_stop("Black");
     c.mm_summa(a,b,alpha, beta);
+    
+    // trace_cpu_start();
+    MPI_Barrier(MPI_COMM_WORLD);
+    // trace_cpu_stop("Black");
+
     double time = omp_get_wtime()-start;
     trace_finish();
 
@@ -163,6 +180,7 @@ int main (int argc, char *argv[])
 
     //------------------------------------------------------
 //  delete[] a1;
+    MPI_Finalize();
     return EXIT_SUCCESS;
 }
 
