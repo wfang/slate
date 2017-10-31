@@ -381,12 +381,15 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
 
 //  copyTo(a, lda);
     // random_general();
-    if (a != nullptr)
+    if (a != nullptr) {
         copyTo_general(a, lda); // TODO: this will break potrf.
-    else
-        random();
+	printf("Matrix(): initialize from existing matrix\n");
+    } else {
+        random_general();
+	printf("Matrix(): randomly generate matrix\n");
+    }
     
-    printf("Random matrix generated...\n");
+    // printf("Random matrix generated...\n");
 
     omp_init_lock(tiles_lock_);
 
@@ -575,11 +578,11 @@ template<typename FloatType>
 void Matrix<FloatType>::random_general()
 {
     for (int64_t i = 0; i < mt_; ++i) {
-        for (int64_t j = 0; j <= nt_; ++j) {
+        for (int64_t j = 0; j < nt_; ++j) {
             if (tileIsLocal(i, j))
             {
                 Tile<FloatType> *tile =
-                    new Tile<FloatType>(tileMb(i), tileNb(j));
+                    new Tile<FloatType>(tileMb(i), tileNb(j), memory_);
 
                 int iseed[4];
                 iseed[0] = i & 0x0FFF;

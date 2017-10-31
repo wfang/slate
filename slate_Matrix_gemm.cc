@@ -1,6 +1,7 @@
 // TODO: support transa, transb
 // #include <omp.h>
 #include "slate_Matrix.hh"
+#include <sched.h>
 
 namespace slate {
     
@@ -54,6 +55,8 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
     printf("summa: K=%d,M=%d,N=%d\n", K,M,N);
     char *adep, *bdep;
     // TODO: implement pipeline to overlap communication with computation
+    #pragma omp parallel
+    #pragma omp master
     for (int k=0; k<K; k++) { // phase k
 	// broadcast the kth col ,of a
 	// printf("iteration k=%d\n",k);
@@ -111,12 +114,13 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		}
 	    }
 	}
-	// #pragma omp taskwait
+	#pragma omp taskwait
 	// do the trailing matrix update
 	// printf("update matrix C...\n");
 	for (int i=0; i<M; i++) {
 	    for (int j=0; j<N; j++) {
                 // #pragma omp task depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
+		// #pragma omp task
 		{
 		    // printf("a(%d,%d)->mb_=%d, data_=%p, b(%d,%d)->nb_=%d, data=%p\n",
 		    // 	   i, k, a(i,k)->mb_, a(i,k)->data_,
@@ -127,7 +131,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		    // }
 		    // printf("\n");
 		    if (tileIsLocal(i,j)) {
-			printf("Updating C(%d,%d) on rank %d\n", i, j, mpi_rank_);
+
 			// printf("rank %d count a(%d,%d)=%d b(%d,%d)=%d c(%d,%d)=%d \n",
 			//        mpi_rank_,
 			//        i,k,a.tiles_->count({i,k,host_num_}),
@@ -137,6 +141,8 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 			// The rest does C = alpha*Ak*Bk + C
 #pragma omp task shared(a,b) depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
 			{
+			    int cpu = sched_getcpu();
+			    printf("Updating C(%d,%d) on rank %d cpu# %d\n", i, j, mpi_rank_, cpu);
 			    if (k==0)
 				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
 						   a(i,k), b(k,j), beta);
@@ -148,7 +154,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 		}
 	    }
 	}
-	#pragma omp taskwait
+	// #pragma omp taskwait
     }
 }
 

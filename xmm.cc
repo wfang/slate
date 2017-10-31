@@ -33,7 +33,12 @@ void diff_lapack_matrices(int64_t m, int64_t n, double *a, int64_t lda,
 
 void print_envinfo()
 {
-    int tnum = omp_get_num_threads();
+    int tnum;
+    #pragma omp parallel
+    #pragma omp master
+    {
+	tnum = omp_get_num_threads();
+    }
     int pnum;
     MPI_Comm_size(MPI_COMM_WORLD, &pnum);
     printf("OpenMP threads: %d, MPI Ranks: %d\n", tnum, pnum);
@@ -117,18 +122,18 @@ int main (int argc, char *argv[])
 	   mpi_rank, a.tiles_->size(), b.tiles_->size(), c.tiles_->size());
     trace_on();
 
-    // trace_cpu_start();
+    trace_cpu_start();
     MPI_Barrier(MPI_COMM_WORLD);
-    // trace_cpu_stop("Black");
+    trace_cpu_stop("Black");
 
     double start = omp_get_wtime();
     // a.potrf(blas::Uplo::Lower, lookahead);
     double alpha = 1.0, beta = 0.0;
     c.mm_summa(a,b,alpha, beta);
     
-    // trace_cpu_start();
+    trace_cpu_start();
     MPI_Barrier(MPI_COMM_WORLD);
-    // trace_cpu_stop("Black");
+    trace_cpu_stop("Black");
 
     double time = omp_get_wtime()-start;
     trace_finish();
@@ -141,7 +146,7 @@ int main (int argc, char *argv[])
     if (mpi_rank == 0) {
 
         double gflops = (double)nb*nb*nb*nt*nt*nt*2/time/1000000000.0;
-        printf("\t%.0lf GFLOPS\n", gflops);
+        printf("\t%.0lf GFLOPS, %.3f TIME(s)\n", gflops, time);
         fflush(stdout);
 
         // retval = LAPACKE_dpotrf(LAPACK_COL_MAJOR, 'L', n, a2, lda);
@@ -149,32 +154,40 @@ int main (int argc, char *argv[])
 	// 
 	// blas::gemm(blas::Layout::ColMajor, blas::Op::NoTrans, blas::Op::NoTrans,
 	// 	   n, n, n, alpha, a1, lda, a1, lda, beta, c2, lda);
-	cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, n, n, n,
-		    alpha, a1, lda, a1, lda, beta, c2, lda);
+	if (test) {
+	    start = omp_get_wtime();
+	    cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, n, n, n,
+			alpha, a1, lda, a1, lda, beta, c2, lda);
+	    time = omp_get_wtime() - start;
+	    gflops = (double)nb*nb*nb*nt*nt*nt*2/time/1000000000.0;
+	    printf("BLAS %.0lf GFLOPS, %.3f TIME(s)\n", gflops, time);
 
-        // a.copyFromFull(a1, lda);
-	c.copyFromFull_general(c1, lda);
-        // diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
-	if (nt <= 10) 
-	    diff_lapack_matrices(n, n, c1, lda, c2, lda, nb, nb);
+	    // a.copyFromFull(a1, lda);
+	    c.copyFromFull_general(c1, lda);
+	    // diff_lapack_matrices(n, n, a1, lda, a2, lda, nb, nb);
+	    if (nt <= 10) 
+		diff_lapack_matrices(n, n, c1, lda, c2, lda, nb, nb);
 
-	// printf("c1(0,0)=%.3f,c2(0,0)=%.3f\n", c(0,0)->data_[0], c2[0]);
+	    // printf("c1(0,0)=%.3f,c2(0,0)=%.3f\n", c(0,0)->data_[0], c2[0]);
 	
-        cblas_daxpy((size_t)lda*n, -1.0, c1, 1, c2, 1);
-        double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, c1, lda);
-        // double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, a2, lda);
-	double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, c2, lda);
-        // delete[] a2;
+	    cblas_daxpy((size_t)lda*n, -1.0, c1, 1, c2, 1);
+	    double norm = LAPACKE_dlansy(LAPACK_COL_MAJOR, 'F', 'L', n, c1, lda);
+	    // double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, a2, lda);
+	    double error = LAPACKE_dlange(LAPACK_COL_MAJOR, 'F', n, n, c2, lda);
+	    // delete[] a2;
 
-        // if (norm != 0)
+	    // if (norm != 0)
             // error /= norm;
-        printf("\terror %le, norm %le\n", error, norm);
-	if (error/norm > 1.e-12) {
-	    printf("INCORRECT RESULT!\n");
-	    return 254;
+	    printf("\terror %le, norm %le\n", error, norm);
+	    if (error/norm > 1.e-12) {
+		printf("INCORRECT RESULT!\n");
+		return 254;
+	    } else {
+		printf("RESULTS CORRECT!\n");
+		return EXIT_SUCCESS;
+	    }
 	} else {
-	    printf("RESULTS CORRECT!\n");
-	    return EXIT_SUCCESS;
+	    printf("TESTING NOT PERFORMED!\n");
 	}
     }
 
