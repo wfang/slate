@@ -62,7 +62,8 @@ int main (int argc, char *argv[])
     int provided;
     int retval;
 //  assert(MPI_Init(&argc, &argv) == MPI_SUCCESS);
-    retval = MPI_Init_thread(nullptr, nullptr,
+    // retval = MPI_Init_thread(nullptr, nullptr,
+    retval = MPI_Init_thread(&argc, &argv,
                              MPI_THREAD_MULTIPLE, &provided);
     assert(retval == MPI_SUCCESS);
     assert(provided >= MPI_THREAD_MULTIPLE);
@@ -181,9 +182,11 @@ int main (int argc, char *argv[])
 	    printf("\terror %le, norm %le\n", error, norm);
 	    if (error/norm > 1.e-12) {
 		printf("INCORRECT RESULT!\n");
+		MPI_Finalize();
 		return 254;
 	    } else {
 		printf("RESULTS CORRECT!\n");
+		MPI_Finalize();
 		return EXIT_SUCCESS;
 	    }
 	} else {

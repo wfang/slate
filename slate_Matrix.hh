@@ -115,6 +115,7 @@ public:
     void potrf(blas::Uplo uplo, int64_t lookahead = 0);
 
     void mm_summa(Matrix &a, Matrix &b, double alpha, double beta);
+    void mm_summa_nb(Matrix &a, Matrix &b, double alpha, double beta);
     Memory *memory_;
 private:
     // TODO: replace by unordered_map
@@ -675,12 +676,14 @@ void Matrix<FloatType>::gather_general()
     for (int64_t i = 0; i < mt_; ++i) {
         for (int64_t j = 0; j < nt_; ++j) {
             if (mpi_rank_ == 0) {
-                if (!tileIsLocal(i, j))
+                if (!tileIsLocal(i, j)) {
                     tileRecv(i, j, tileRank(i, j));
+		}
             }
             else {
-                if (tileIsLocal(i, j))
+                if (tileIsLocal(i, j)) {
                     tileSend(i, j, 0);
+		}
             }
         }
     }    
@@ -690,12 +693,14 @@ void Matrix<FloatType>::gather_general()
 
 
 //------------------------------------------------------------------------------
+#define TAG_MAGIC 2438
 template<typename FloatType>
 void Matrix<FloatType>::tileSend(int64_t i, int64_t j, int dest)
 {
     Tile<FloatType> *tile = (*this)(i, j);
     int count = tile->mb_*tile->nb_;
-    int tag = 0;
+    // int tag = 0;
+    int tag = i*TAG_MAGIC + j;
     int retval;
     #pragma omp critical
     retval = MPI_Send(tile->data_, count, MPI_DOUBLE, dest, tag, mpi_comm_);
@@ -709,7 +714,8 @@ void Matrix<FloatType>::tileRecv(int64_t i, int64_t j, int src)
     Tile<FloatType> *tile = new Tile<FloatType>(tileMb(i), tileNb(j), memory_);
     (*this)(i, j) = tile;
     int count = tile->mb_*tile->nb_;
-    int tag = 0;
+    // int tag = 0;
+    int tag = i*TAG_MAGIC + j;
     int retval;
     #pragma omp critical
     retval = MPI_Recv(tile->data_, count, MPI_DOUBLE, src, tag, mpi_comm_,
