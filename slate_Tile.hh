@@ -43,12 +43,16 @@ public:
         : mb_(mb), nb_(nb), memory_(memory), device_num_(host_num_), life_(0)
     {
         allocate();
+	omp_init_lock(&bcast_req_lck);
+	omp_init_lock(&access_lck);
     }
     Tile(int64_t mb, int64_t nb, FloatType *a, int64_t lda, Memory *memory)
         : mb_(mb), nb_(nb), memory_(memory), device_num_(host_num_), life_(0)
     {
         allocate();
         copyTo(a, lda);
+	omp_init_lock(&bcast_req_lck);
+	omp_init_lock(&access_lck);
     }
     Tile(const Tile<FloatType> *src_tile, int dst_device_num,
          cudaStream_t stream)
@@ -61,6 +65,8 @@ public:
             copyToHost(src_tile, stream);
         else
             copyToDevice(src_tile, dst_device_num, stream);
+	omp_init_lock(&bcast_req_lck);
+	omp_init_lock(&access_lck);
     }
     ~Tile() {
         deallocate();
@@ -149,6 +155,9 @@ public:
     MPI_Request bcast_request_;
     MPI_Group bcast_group_;
     MPI_Comm bcast_comm_;
+
+    omp_lock_t bcast_req_lck;
+    omp_lock_t access_lck;
 
 private:
     size_t size() {

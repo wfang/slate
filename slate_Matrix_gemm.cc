@@ -159,7 +159,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 	    }
 	}
 	// #pragma omp taskwait
-    }
+    } // end of OpenMP parallel region. Implicit synchronization here. 
 }
 
 // non-blocking collective SUMMA
@@ -196,7 +196,7 @@ void Matrix<FloatType>::mm_summa_nb(Matrix &a, Matrix &b, double alpha, double b
 		    a(i,k) = tile;
 		}
 // #pragma omp task depend(out:adep[i*M + k]) shared(a,b)
-                #pragma omp task shared(a,b)
+                // #pragma omp task shared(a,b)
 		{
 		    trace_cpu_start();
 		    Tile<FloatType>  *tile = a(i,k);
@@ -205,9 +205,10 @@ void Matrix<FloatType>::mm_summa_nb(Matrix &a, Matrix &b, double alpha, double b
 		    // TODO: setup life for tile
 		    int err;
                     // #pragma omp critical
-		    err = MPI_Bcast(tile->data_, count, MPI_DOUBLE,
-				    (jt_+k)%q, mpi_comm_row_);
+		    err = MPI_Ibcast(tile->data_, count, MPI_DOUBLE,
+				     (jt_+k)%q, mpi_comm_row_, &tile->bcast_request_);
 		    assert(err == MPI_SUCCESS);
+		    // MPI_Wait(&tile->bcast_request_, MPI_STATUS_IGNORE);
 		    trace_cpu_stop("Red");
 		}
 	    }
@@ -226,7 +227,7 @@ void Matrix<FloatType>::mm_summa_nb(Matrix &a, Matrix &b, double alpha, double b
 		    b(k,j) = tile;
 		}
 // #pragma omp task depend(out:bdep[k*K + j]) shared(a,b)
-                #pragma omp task shared(a,b)
+                // #pragma omp task shared(a,b)
 		{
 		    // printf("accessing a(%d,%d)..\n", k, j);
 		    trace_cpu_start();
@@ -234,9 +235,10 @@ void Matrix<FloatType>::mm_summa_nb(Matrix &a, Matrix &b, double alpha, double b
 		    int count = tile->mb_*tile->nb_;
 		    int err;
                     // #pragma omp critical
-		    err = MPI_Bcast(tile->data_, count, MPI_DOUBLE,
-				    (it_+k)%p, mpi_comm_col_);
+		    err = MPI_Ibcast(tile->data_, count, MPI_DOUBLE,
+				     (it_+k)%p, mpi_comm_col_, &tile->bcast_request_);
 		    assert(err == MPI_SUCCESS);
+		    // MPI_Wait(&tile->bcast_request_, MPI_STATUS_IGNORE);
 		    trace_cpu_stop("Orange");
 		}
 	    }
@@ -247,7 +249,7 @@ void Matrix<FloatType>::mm_summa_nb(Matrix &a, Matrix &b, double alpha, double b
 	for (int i=0; i<M; i++) {
 	    for (int j=0; j<N; j++) {
                 // #pragma omp task depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
-		#pragma omp task
+		// #pragma omp task
 		{
 		    // printf("a(%d,%d)->mb_=%d, data_=%p, b(%d,%d)->nb_=%d, data=%p\n",
 		    // 	   i, k, a(i,k)->mb_, a(i,k)->data_,
@@ -267,22 +269,39 @@ void Matrix<FloatType>::mm_summa_nb(Matrix &a, Matrix &b, double alpha, double b
 			// The first iteration does C = alpha*A1*B1 + beta*C;
 			// The rest does C = alpha*Ak*Bk + C
 // #pragma omp task shared(a,b) depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
+                        #pragma omp task shared(a,b)
 			{
-			    int cpu = sched_getcpu();
-			    printf("Updating C(%d,%d) on rank %d cpu# %d\n", i, j, mpi_rank_, cpu);
+			    // int cpu = sched_getcpu();
+			    // printf("Updating C(%d,%d) on rank %d cpu# %d\n", i, j, mpi_rank_, cpu);
+			    trace_cpu_start();
+			    omp_set_lock(&a(i,k)->bcast_req_lck);
+			    #pragma omp critical
+			    MPI_Wait(&a(i,k)->bcast_request_, MPI_STATUS_IGNORE);
+			    omp_unset_lock(&a(i,k)->bcast_req_lck);
+			    trace_cpu_stop("Red");
+			    
+			    trace_cpu_start();
+			    omp_set_lock(&b(k,j)->bcast_req_lck);
+			    #pragma omp critical
+			    MPI_Wait(&b(k,j)->bcast_request_, MPI_STATUS_IGNORE);
+			    omp_unset_lock(&b(k,j)->bcast_req_lck);
+			    trace_cpu_stop("Orange");
+
+			    omp_set_lock(&(*this)(i,j)->access_lck);
 			    if (k==0)
 				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
 						   a(i,k), b(k,j), beta);
 			    else 
 				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
 						   a(i,k), b(k,j), 1.0);
+			    omp_unset_lock(&(*this)(i,j)->access_lck);
 			}
 		    }
 		}
 	    }
 	}
 	// #pragma omp taskwait
-    }
+    } // end of parallel region
 }
 
 

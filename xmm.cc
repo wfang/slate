@@ -64,10 +64,11 @@ int main (int argc, char *argv[])
 //  assert(MPI_Init(&argc, &argv) == MPI_SUCCESS);
     // retval = MPI_Init_thread(nullptr, nullptr,
     retval = MPI_Init_thread(&argc, &argv,
+			     // MPI_THREAD_SERIALIZED, &provided);
                              MPI_THREAD_MULTIPLE, &provided);
     assert(retval == MPI_SUCCESS);
     assert(provided >= MPI_THREAD_MULTIPLE);
-
+    // assert(provided >= MPI_THREAD_SERIALIZED);
     assert(MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank) == MPI_SUCCESS);
     assert(MPI_Comm_size(MPI_COMM_WORLD, &mpi_size) == MPI_SUCCESS);
     assert(mpi_size == p*q);
@@ -130,7 +131,8 @@ int main (int argc, char *argv[])
     double start = omp_get_wtime();
     // a.potrf(blas::Uplo::Lower, lookahead);
     double alpha = 1.0, beta = 0.0;
-    c.mm_summa(a,b,alpha, beta);
+    // c.mm_summa(a,b,alpha, beta);
+    c.mm_summa_nb(a,b,alpha, beta);
     
     trace_cpu_start();
     MPI_Barrier(MPI_COMM_WORLD);
