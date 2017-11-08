@@ -117,7 +117,9 @@ public:
     void mm_summa(Matrix &a, Matrix &b, double alpha, double beta);
     void mm_summa_nb(Matrix &a, Matrix &b, double alpha, double beta);
     void mm_summa_pl(Matrix &a, Matrix &b, double alpha, double beta, int la);
+    void mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double alpha, double beta, int la);
     void mm_bcast(Matrix &a, Matrix &b, int M, int N,  int k);
+    void mm_Ibcast(Matrix &a, Matrix &b, int M, int N,  int k);
     Memory *memory_;
 private:
     // TODO: replace by unordered_map

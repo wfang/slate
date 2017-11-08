@@ -133,7 +133,8 @@ int main (int argc, char *argv[])
     double alpha = 1.0, beta = 0.0;
     // c.mm_summa(a,b,alpha, beta);
     // c.mm_summa_nb(a,b,alpha, beta);
-    c.mm_summa_pl(a,b,alpha,beta,lookahead);
+    // c.mm_summa_pl(a,b,alpha,beta,lookahead);
+    c.mm_summa_blocking_pipelined(a,b,alpha, beta,lookahead);
     trace_cpu_start();
     MPI_Barrier(MPI_COMM_WORLD);
     trace_cpu_stop("Black");
