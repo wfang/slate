@@ -46,10 +46,11 @@ void Matrix<FloatType>::potrf(blas::Uplo uplo, int64_t lookahead)
                                  {m, nt_-1, m, m});
         }
         // trailing submatrix
+	int nt__ = nt_;
         if (k+1+lookahead < nt_) {
             #pragma omp task depend(in:column[k]) \
                              depend(inout:column[k+1+lookahead]) \
-                             depend(inout:column[nt_-1])
+	                     depend(inout:column[nt__-1])
             Matrix(a, k+1+lookahead, k+1+lookahead,
                    nt_-1-k-lookahead, nt_-1-k-lookahead).syrkAcc(
                 Uplo::Lower, Op::NoTrans,

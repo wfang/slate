@@ -19,6 +19,11 @@ extern "C" {
     void dlarnv_(int *idist, int *iseed, int *n, double *x);
     void clarnv_(int *idist, int *iseed, int *n, std::complex<float> *x);
     void zlarnv_(int *idist, int *iseed, int *n, std::complex<double> *x);
+
+    void slarnv(int *idist, int *iseed, int *n, float *x);
+    void dlarnv(int *idist, int *iseed, int *n, double *x);
+    void clarnv(int *idist, int *iseed, int *n, std::complex<float> *x);
+    void zlarnv(int *idist, int *iseed, int *n, std::complex<double> *x);
 }
 
 namespace lapack {

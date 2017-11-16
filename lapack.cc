@@ -29,22 +29,26 @@ void potrf(blas::Layout layout, blas::Uplo uplo, int64_t n,
 
 void larnv(int idist, int *iseed, int n, float *x)
 {
-    slarnv_(&idist, iseed, &n, x);
+    // slarnv_(&idist, iseed, &n, x);
+    slarnv(&idist, iseed, &n, x);
 }
 
 void larnv(int idist, int *iseed, int n, double *x)
 {
-    dlarnv_(&idist, iseed, &n, x);
+    // dlarnv_(&idist, iseed, &n, x);
+    dlarnv(&idist, iseed, &n, x);
 }
 
 void larnv(int idist, int *iseed, int n, std::complex<float> *x)
 {
-    clarnv_(&idist, iseed, &n, x);
+    // clarnv_(&idist, iseed, &n, x);
+    clarnv(&idist, iseed, &n, x);
 }
 
 void larnv(int idist, int *iseed, int n, std::complex<double> *x)
 {
-    zlarnv_(&idist, iseed, &n, x);
+    // zlarnv_(&idist, iseed, &n, x);
+    zlarnv(&idist, iseed, &n, x);
 }
 
 } // namespace lapack

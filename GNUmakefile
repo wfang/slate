@@ -1,20 +1,24 @@
 CFLAGS  = -std=c99
-CCFLAGS = -std=c++11
+CCFLAGS = -std=gnu++1y
 #--------------------------------------------
 # if debug
 ifeq (debug, $(filter debug,$(MAKECMDGOALS)))
 	CFLAGS += -O0 -g
 	CCFLAGS += -O0 -g
 else
-	CFLAGS += -O3
-	CCFLAGS += -O3
+	CFLAGS += -O2
+	CCFLAGS += -O2
 endif
 
 #---------------------------------------------
 # if OpenMP
 ifeq (openmp,$(filter openmp,$(MAKECMDGOALS)))
 	CCFLAGS += -DSLATE_WITH_OPENMP
-	CCFLAGS += -fopenmp
+	ifeq (xl,$(filter xl,$(MAKECMDGOALS)))
+		CCFLAGS += -qsmp=omp
+	else
+		CCFLAGS += -fopenmp
+	endif
 else
 	SRC += slate_NoOpenmp.cc
 endif
@@ -48,7 +52,7 @@ ifeq (mkl,$(filter mkl,$(MAKECMDGOALS)))
 # if ESSL
 else ifeq (essl,$(filter essl,$(MAKECMDGOALS)))
 	CCFLAGS += -DSLATE_WITH_ESSL 
-	LIB += -lessl -llapack
+	LIB += -lessl -llapacke -llapack
 endif
 
 #-----------------------------------------
@@ -89,6 +93,9 @@ essl:
 
 cuda:
 	@echo built with CUDA
+
+xl:
+	@echo built with IBM XL
 
 linux macos: $(OBJ)
 	$(CC) $(CFLAGS) -DMPI -c trace/trace.c -o trace/trace.o

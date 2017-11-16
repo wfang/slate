@@ -55,8 +55,9 @@ public:
     void* alloc(int device_num)
     {
         void *block;
-        #pragma omp critical(slate_memory)
-        {
+        // #pragma omp critical(slate_memory)
+	#pragma omp critical
+	{
             if (free_blocks_[device_num].size() > 0) {
                 block = free_blocks_[device_num].top();
                 free_blocks_[device_num].pop();
@@ -69,7 +70,8 @@ public:
     }
     void free(void *block, int device_num)
     {
-        #pragma omp critical(slate_memory)
+        // #pragma omp critical(slate_memory)
+	#pragma omp critical
         {
             free_blocks_[device_num].push(block);
         }

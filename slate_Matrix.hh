@@ -82,28 +82,32 @@ public:
     Tile<FloatType>* &operator()(int64_t i, int64_t j)
     {
         omp_set_lock(tiles_lock_);
-        Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, host_num_}];
+        // Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, host_num_}];
+	Tile<FloatType>* &tile = (*tiles_)[std::make_tuple(it_+i, jt_+j, host_num_)];
         omp_unset_lock(tiles_lock_);
         return tile;
     }
     Tile<FloatType>* &operator()(int64_t i, int64_t j) const
     {
         omp_set_lock(tiles_lock_);
-        Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, host_num_}];
+        // Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, host_num_}];
+	Tile<FloatType>* &tile = (*tiles_)[std::make_tuple(it_+i, jt_+j, host_num_)];
         omp_unset_lock(tiles_lock_);
         return tile;
     }
     Tile<FloatType>* &operator()(int64_t i, int64_t j, int device)
     {
         omp_set_lock(tiles_lock_);
-        Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, device}];
+        // Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, device}];
+	Tile<FloatType>* &tile = (*tiles_)[std::make_tuple(it_+i, jt_+j, device)];
         omp_unset_lock(tiles_lock_);
         return tile;
     }
     Tile<FloatType>* &operator()(int64_t i, int64_t j, int device) const
     {
         omp_set_lock(tiles_lock_);
-        Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, device}];
+        // Tile<FloatType>* &tile = (*tiles_)[{it_+i, jt_+j, device}];
+	Tile<FloatType>* &tile = (*tiles_)[std::make_tuple(it_+i, jt_+j, device)];
         omp_unset_lock(tiles_lock_);
         return tile;
     }
@@ -230,14 +234,14 @@ void Matrix<FloatType>::tileCopyToDevice(int64_t i, int64_t j, int dst_device)
 {
     omp_set_lock(tiles_lock_);
     // If the tile not on the device.
-    if (tiles_->find({it_+i, jt_+j, dst_device}) == tiles_->end()) {
+    if (tiles_->find(std::make_tuple(it_+i, jt_+j, dst_device)) == tiles_->end()) {
         // Copy the tile to the device.
-        Tile<FloatType> *src_tile = (*tiles_)[{it_+i, jt_+j, host_num_}];
+        Tile<FloatType> *src_tile = (*tiles_)[std::make_tuple(it_+i, jt_+j, host_num_)];
         omp_unset_lock(tiles_lock_);
         Tile<FloatType> *tile =
             new Tile<FloatType>(src_tile, dst_device, comm_stream_[dst_device]);
         omp_set_lock(tiles_lock_);
-        (*tiles_)[{it_+i, jt_+j, dst_device}] = tile;
+        (*tiles_)[std::make_tuple(it_+i, jt_+j, dst_device)] = tile;
     }
     omp_unset_lock(tiles_lock_);
 }
@@ -251,16 +255,16 @@ void Matrix<FloatType>::tileMoveToDevice(int64_t i, int64_t j, int dst_device)
 {
     omp_set_lock(tiles_lock_);
     // If the tile not on the device.
-    if (tiles_->find({it_+i, jt_+j, dst_device}) == tiles_->end()) {
+    if (tiles_->find(std::make_tuple(it_+i, jt_+j, dst_device)) == tiles_->end()) {
         // Move the tile to the device.
-        Tile<FloatType> *src_tile = (*tiles_)[{it_+i, jt_+j, host_num_}];
+        Tile<FloatType> *src_tile = (*tiles_)[std::make_tuple(it_+i, jt_+j, host_num_)];
         omp_unset_lock(tiles_lock_);
         Tile<FloatType> *tile =
             new Tile<FloatType>(src_tile, dst_device, comm_stream_[dst_device]);
         omp_set_lock(tiles_lock_);
-        (*tiles_)[{it_+i, jt_+j, dst_device}] = tile;
-        delete (*tiles_)[{it_+i, jt_+j, host_num_}];
-        tiles_->erase({it_+i, jt_+j, host_num_});
+        (*tiles_)[std::make_tuple(it_+i, jt_+j, dst_device)] = tile;
+        delete (*tiles_)[std::make_tuple(it_+i, jt_+j, host_num_)];
+        tiles_->erase(std::make_tuple(it_+i, jt_+j, host_num_));
     }
     omp_unset_lock(tiles_lock_);
 }
@@ -274,16 +278,16 @@ void Matrix<FloatType>::tileMoveToHost(int64_t i, int64_t j, int src_device)
 {
     omp_set_lock(tiles_lock_);
     // If the tile not on the host.
-    if (tiles_->find({it_+i, jt_+j, host_num_}) == tiles_->end()) {
+    if (tiles_->find(std::make_tuple(it_+i, jt_+j, host_num_)) == tiles_->end()) {
         // Move the tile to the host.
-        Tile<FloatType> *src_tile = (*tiles_)[{it_+i, jt_+j, src_device}];
+	Tile<FloatType> *src_tile = (*tiles_)[std::make_tuple(it_+i, jt_+j, src_device)];
         omp_unset_lock(tiles_lock_);
         Tile<FloatType> *tile =
             new Tile<FloatType>(src_tile, host_num_, comm_stream_[src_device]);
         omp_set_lock(tiles_lock_);
-        (*tiles_)[{it_+i, jt_+j, host_num_}] = tile;
-        delete (*tiles_)[{it_+i, jt_+j, src_device}];
-        tiles_->erase({it_+i, jt_+j, src_device});
+        (*tiles_)[std::make_tuple(it_+i, jt_+j, host_num_)] = tile;
+        delete (*tiles_)[std::make_tuple(it_+i, jt_+j, src_device)];
+        tiles_->erase(std::make_tuple(it_+i, jt_+j, src_device));
     }
     omp_unset_lock(tiles_lock_);
 }
@@ -297,10 +301,10 @@ void Matrix<FloatType>::tileErase(int64_t i, int64_t j, int device)
 {
     omp_set_lock(tiles_lock_);
     // If the tile exists in the specified location.
-    if (tiles_->find({it_+i, jt_+j, device}) != tiles_->end()) {
+    if (tiles_->find(std::make_tuple(it_+i, jt_+j, device)) != tiles_->end()) {
         // Erase the tile.
-        delete (*tiles_)[{it_+i, jt_+j, device}];
-        tiles_->erase({it_+i, jt_+j, device});
+        delete (*tiles_)[std::make_tuple(it_+i, jt_+j, device)];
+        tiles_->erase(std::make_tuple(it_+i, jt_+j, device));
     }
     omp_unset_lock(tiles_lock_);
 }
@@ -996,10 +1000,10 @@ void Matrix<FloatType>::printLife()
     if (mpi_rank_ == 0) {
         for (int64_t i = 0; i < mt_; ++i) {
             for (int64_t j = 0; j < nt_; j++) {
-                if (tiles_->find({i, j, host_num_}) == tiles_->end())
+                if (tiles_->find(std::make_tuple(i, j, host_num_)) == tiles_->end())
                     printf("  .");
                 else
-                    printf("%3ld", (*tiles_)[{i, j, host_num_}]->life_);
+                    printf("%3ld", (*tiles_)[std::make_tuple(i, j, host_num_)]->life_);
             }
             printf("\n");
         }

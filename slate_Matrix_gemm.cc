@@ -162,7 +162,7 @@ void Matrix<FloatType>::mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double
 // #pragma omp task shared(a,b) depend(in:adep[k])
 			{
 			    int cpu = sched_getcpu();
-			    // printf("Updating C(%d,%d) on rank %d cpu# %d\n", i, j, mpi_rank_, cpu);
+			    printf("Updating C(%d,%d) on rank %d cpu# %d\n", i, j, mpi_rank_, cpu);
 			    if (k==0)
 				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
 						   a(i,k), b(k,j), beta);
