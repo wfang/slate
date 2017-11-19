@@ -65,14 +65,14 @@ int main (int argc, char *argv[])
     int mpi_size = 1;
     int provided;
     int retval;
-//  assert(MPI_Init(&argc, &argv) == MPI_SUCCESS);
+    // assert(MPI_Init(&argc, &argv) == MPI_SUCCESS);
     // retval = MPI_Init_thread(nullptr, nullptr,
     retval = MPI_Init_thread(&argc, &argv,
-			     // MPI_THREAD_SERIALIZED, &provided);
-                             MPI_THREAD_MULTIPLE, &provided);
+			     MPI_THREAD_SERIALIZED, &provided);
+                             // MPI_THREAD_MULTIPLE, &provided);
     assert(retval == MPI_SUCCESS);
-    assert(provided >= MPI_THREAD_MULTIPLE);
-    // assert(provided >= MPI_THREAD_SERIALIZED);
+    // assert(provided >= MPI_THREAD_MULTIPLE);
+    assert(provided >= MPI_THREAD_SERIALIZED);
     assert(MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank) == MPI_SUCCESS);
     assert(MPI_Comm_size(MPI_COMM_WORLD, &mpi_size) == MPI_SUCCESS);
     assert(mpi_size == p*q);
@@ -130,6 +130,11 @@ int main (int argc, char *argv[])
     slate::Matrix<double> c(n, n, a1, lda,  nb, nb, MPI_COMM_WORLD, row_comm, col_comm, p, q);
     printf("R%d: matrix created: # tiles: a %d, b %d, c %d\n",
 	   mpi_rank, a.tiles_->size(), b.tiles_->size(), c.tiles_->size());
+    printf("R%d: warming up..\n");
+    double sum=0;
+    for (int i=0; i<1000000; i++) {
+      sum += i*i;
+    }
     trace_on();
 
     trace_cpu_start();
