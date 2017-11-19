@@ -39,7 +39,7 @@ void Matrix<FloatType>::copyFromFull_general(FloatType *a, int64_t lda)
 template<typename FloatType>
 void Matrix<FloatType>:: mm_bcast(Matrix &a, Matrix &b, int M, int N,  int k)
 {
-#pragma omp task shared(a,b)
+// #pragma omp task shared(a,b)
     for (int i=0; i<M; i++) {
 	if ((i+it_)%p == prow) {
 	    if (!a.tileIsLocal(i,k)) {
@@ -67,7 +67,7 @@ void Matrix<FloatType>:: mm_bcast(Matrix &a, Matrix &b, int M, int N,  int k)
     }
     // broadcast the kth row of b
     // printf("col broadcasting...\n");
-#pragma omp task shared(a,b)
+// #pragma omp task shared(a,b)
     for (int j=0; j<N; j++) {
 	// TODO
 	// printf("j=%d\n", j);
@@ -118,45 +118,39 @@ void Matrix<FloatType>::mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double
     int K = a.nt_, M = mt_, N = nt_;
     printf("summa: K=%d,M=%d,N=%d\n", K,M,N);
     printf("summa: R%d (prow,pcol)=(%d,%d)\n", mpi_rank_, prow, pcol);
-    char *adep, *bdep, *kdep;
-    // TODO: implement pipeline to overlap communication with computation
+    char *adep, *bdep, *kdep, depx;
+
+
+#pragma omp parallel
+#pragma omp master
+// #pragma task untied
+    {
+	// pipeline head
     for (int i=0; i<la; i++) {
-#pragma omp task shared(a,b) depend(out:kdep[i]) if(0)
+#pragma omp task shared(a,b) depend(out:kdep[i])  depend(inout: depx) final(1)
 	mm_bcast(a,b,M,N,i);
     }
-    #pragma omp parallel
-    #pragma omp master
+
     for (int k=0; k<K; k++) { // phase k
-	// broadcast the kth col ,of a
-	// printf("iteration k=%d\n",k);
-	// printf("row broadcasting...\n");
-        // #pragma omp task shared(a,b)
-#pragma omp task shared(a,b) depend(out:kdep[k+la]) if(0)
-	if (k+la<K)
+	// The order of the communication tasks must be enforced. Either use a dependence
+	// clause or if(0) to force execution before continuing.
+	// On summitdev, if(0) seems to perform better.
+	// The scheduler is not particularly smart on summitdev as it schedules too much
+	// computation tasks on the "communication task", thus making a part of the comm
+	// part of the critical path.
+
+	if (k+la<K) {
+#pragma omp task shared(a,b) depend(out:kdep[k+la])  depend(inout: depx) final(1)
 	    mm_bcast(a, b, M, N, k+la);
+	} 
 	// #pragma omp taskwait
 	// do the trailing matrix update
-	// printf("update matrix C...\n");
 	for (int i=0; i<M; i++) {
 	    for (int j=0; j<N; j++) {
                 // #pragma omp task depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
 		// #pragma omp task
 		{
-		    // printf("a(%d,%d)->mb_=%d, data_=%p, b(%d,%d)->nb_=%d, data=%p\n",
-		    // 	   i, k, a(i,k)->mb_, a(i,k)->data_,
-		    // 	   k, j, b(k,j)->nb_, b(k,j)->data_);
-		    // for (auto it=a.tiles_->begin(); it!=a.tiles_->end(); it++) {
-		    // 	printf("a(%d,%d) ", std::get<0>(it->first),
-		    // 	       std::get<1>(it->first));
-		    // }
-		    // printf("\n");
 		    if (tileIsLocal(i,j)) {
-
-			// printf("rank %d count a(%d,%d)=%d b(%d,%d)=%d c(%d,%d)=%d \n",
-			//        mpi_rank_,
-			//        i,k,a.tiles_->count({i,k,host_num_}),
-			//        k,j,b.tiles_->count({k,j,host_num_}),
-			//        i,j,tiles_->count({i,j,host_num_}));
 			// The first iteration does C = alpha*A1*B1 + beta*C;
 			// The rest does C = alpha*Ak*Bk + C
                         // #pragma omp task shared(a,b) depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
@@ -164,8 +158,8 @@ void Matrix<FloatType>::mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double
 // #pragma omp task shared(a,b) depend(in:adep[k])
 #pragma omp task shared(a,b) depend(in:kdep[k])
 			{
-			    int cpu = sched_getcpu();
-			    printf("Updating C(%d,%d) on rank %d cpu# %d\n", i, j, mpi_rank_, cpu);
+			    // int cpu = sched_getcpu();
+			    // printf("Updating C(%d,%d) on rank %d cpu# %d\n", i, j, mpi_rank_, cpu);
 			    omp_set_lock(&(*this)(i,j)->access_lck);
 			    if (k==0)
 				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
@@ -179,8 +173,9 @@ void Matrix<FloatType>::mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double
 		}
 	    }
 	}
-	// #pragma omp taskwait
-    } // end of OpenMP parallel region. Implicit synchronization here. 
+
+    } // end of loop k.
+    } // end of OpenMP parallel region. Implicit synchronization here.
 }
 template<typename FloatType>
 void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta)
@@ -234,27 +229,21 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
 	    }
 	}
 	// broadcast the kth row of b
-	// printf("col broadcasting...\n");
 	for (int j=0; j<N; j++) {
 	    // TODO
-	    // printf("j=%d\n", j);
 
 	    if ((jt_+j)%q == pcol) {
-		// printf("R%d j%d 
 		if (!b.tileIsLocal(k,j)) {
-		    // printf("creating new tile...\n");
 		    auto *tile = new Tile<FloatType>(b.tileMb(k), b.tileNb(j),b.memory_);
 		    b(k,j) = tile;
 		}
                 // #pragma omp task depend(out:bdep[k*K + j]) shared(a,b)
                 // #pragma omp task shared(a,b)
 		{
-		    // printf("accessing a(%d,%d)..\n", k, j);
 		    trace_cpu_start();
 		    Tile<FloatType> *tile = b(k,j);
 		    int count = tile->mb_*tile->nb_;
 		    int err;
-		    // printf("R%d: col bcast (k,j)=(%d,%d) root=%d\n", mpi_rank_, k, j, (it_+k)%p);
                     // #pragma omp critical
 		    err = MPI_Bcast(tile->data_, count, MPI_DOUBLE,
 				    (it_+k)%p, mpi_comm_col_);
@@ -271,21 +260,7 @@ void Matrix<FloatType>::mm_summa(Matrix &a, Matrix &b, double alpha, double beta
                 // #pragma omp task depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
 		// #pragma omp task
 		{
-		    // printf("a(%d,%d)->mb_=%d, data_=%p, b(%d,%d)->nb_=%d, data=%p\n",
-		    // 	   i, k, a(i,k)->mb_, a(i,k)->data_,
-		    // 	   k, j, b(k,j)->nb_, b(k,j)->data_);
-		    // for (auto it=a.tiles_->begin(); it!=a.tiles_->end(); it++) {
-		    // 	printf("a(%d,%d) ", std::get<0>(it->first),
-		    // 	       std::get<1>(it->first));
-		    // }
-		    // printf("\n");
 		    if (tileIsLocal(i,j)) {
-
-			// printf("rank %d count a(%d,%d)=%d b(%d,%d)=%d c(%d,%d)=%d \n",
-			//        mpi_rank_,
-			//        i,k,a.tiles_->count({i,k,host_num_}),
-			//        k,j,b.tiles_->count({k,j,host_num_}),
-			//        i,j,tiles_->count({i,j,host_num_}));
 			// The first iteration does C = alpha*A1*B1 + beta*C;
 			// The rest does C = alpha*Ak*Bk + C
                         // #pragma omp task shared(a,b) depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
