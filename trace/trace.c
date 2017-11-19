@@ -235,8 +235,10 @@ void trace_finish()
     double max_time;
     find_min_max(&min_time, &max_time);
     double total_time = max_time - min_time;
+    printf("[TRACE] total_time=%.3f\n", total_time);
     double hscale = IMAGE_WIDTH / total_time;
     double vscale = IMAGE_HEIGHT / (mpi_size*NumThreads+1);
+    printf("[TRACE] mpi_size=%d NumThreads=%d\n", mpi_size, NumThreads);
 
     // Output thread events.
     if (mpi_rank == 0) {
@@ -415,8 +417,8 @@ static void print_legend(FILE *trace_file)
 }
 
 //------------------------------------------------------------------------------
-__attribute__ ((constructor))
-static void trace_init()
+__attribute__ ((constructor)) static
+void trace_init()
 {
     // Check if the maximums are powers of two.
     assert (__builtin_popcount(MAX_THREADS) == 1);
@@ -429,6 +431,7 @@ static void trace_init()
     // Clip the number of threads.
     NumThreads = omp_get_max_threads() < MAX_THREADS ?
         omp_get_max_threads() : MAX_THREADS;
+    printf("[TRACE] NumThreads=%d\n", NumThreads);
 
     // Register the destructor.
     // Does not play along with mpirun.

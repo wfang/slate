@@ -118,9 +118,10 @@ void Matrix<FloatType>::mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double
     int K = a.nt_, M = mt_, N = nt_;
     printf("summa: K=%d,M=%d,N=%d\n", K,M,N);
     printf("summa: R%d (prow,pcol)=(%d,%d)\n", mpi_rank_, prow, pcol);
-    char *adep, *bdep;
+    char *adep, *bdep, *kdep;
     // TODO: implement pipeline to overlap communication with computation
     for (int i=0; i<la; i++) {
+#pragma omp task shared(a,b) depend(out:kdep[i]) if(0)
 	mm_bcast(a,b,M,N,i);
     }
     #pragma omp parallel
@@ -129,10 +130,11 @@ void Matrix<FloatType>::mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double
 	// broadcast the kth col ,of a
 	// printf("iteration k=%d\n",k);
 	// printf("row broadcasting...\n");
-        #pragma omp task shared(a,b) 
+        // #pragma omp task shared(a,b)
+#pragma omp task shared(a,b) depend(out:kdep[k+la]) if(0)
 	if (k+la<K)
 	    mm_bcast(a, b, M, N, k+la);
-	#pragma omp taskwait
+	// #pragma omp taskwait
 	// do the trailing matrix update
 	// printf("update matrix C...\n");
 	for (int i=0; i<M; i++) {
@@ -158,17 +160,20 @@ void Matrix<FloatType>::mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double
 			// The first iteration does C = alpha*A1*B1 + beta*C;
 			// The rest does C = alpha*Ak*Bk + C
                         // #pragma omp task shared(a,b) depend(in:adep[i*M+k]) depend(in:bdep[k*K+j])
-			#pragma omp task
+			// #pragma omp task
 // #pragma omp task shared(a,b) depend(in:adep[k])
+#pragma omp task shared(a,b) depend(in:kdep[k])
 			{
 			    int cpu = sched_getcpu();
 			    printf("Updating C(%d,%d) on rank %d cpu# %d\n", i, j, mpi_rank_, cpu);
+			    omp_set_lock(&(*this)(i,j)->access_lck);
 			    if (k==0)
 				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
 						   a(i,k), b(k,j), beta);
 			    else 
 				(*this)(i,j)->gemm(blas::Op::NoTrans, blas::Op::NoTrans, alpha,
 						   a(i,k), b(k,j), 1.0);
+			    omp_unset_lock(&(*this)(i,j)->access_lck);
 			}
 		    }
 		}

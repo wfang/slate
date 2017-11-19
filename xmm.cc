@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <utility>
+#include <unistd.h>
 
 #ifdef SLATE_WITH_MPI
     #include <mpi.h>
@@ -42,6 +43,9 @@ void print_envinfo()
     int pnum;
     MPI_Comm_size(MPI_COMM_WORLD, &pnum);
     printf("OpenMP threads: %d, MPI Ranks: %d\n", tnum, pnum);
+
+    int mth = omp_get_max_threads();
+    printf("OpenMP max threads: %d\n", mth);
 }
 //------------------------------------------------------------------------------
 int main (int argc, char *argv[])
@@ -77,7 +81,10 @@ int main (int argc, char *argv[])
     int prow, pcol;
     prow = mpi_rank % p;
     pcol = mpi_rank / p;
-    printf("Rank %d, prow %d, pcol %d\n", mpi_rank, prow, pcol);
+    char hname[50];
+    // MPI_Get_processor_name(hname, sizeof(hname));
+    gethostname(hname, sizeof(hname));
+    printf("Rank %d, prow %d, pcol %d, hostname %s\n", mpi_rank, prow, pcol, hname);
     int err;
     err = MPI_Comm_split(MPI_COMM_WORLD, prow, pcol, &row_comm);
     assert(err==MPI_SUCCESS);
@@ -85,6 +92,7 @@ int main (int argc, char *argv[])
     assert(err==MPI_SUCCESS);
 
     print_envinfo();
+    // trace_init();
 
     double *a1 = nullptr;
     // double *a2 = nullptr;

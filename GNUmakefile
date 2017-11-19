@@ -16,8 +16,10 @@ ifeq (openmp,$(filter openmp,$(MAKECMDGOALS)))
 	CCFLAGS += -DSLATE_WITH_OPENMP
 	ifeq (xl,$(filter xl,$(MAKECMDGOALS)))
 		CCFLAGS += -qsmp=omp
+		CFLAGS += -qsmp=omp
 	else
 		CCFLAGS += -fopenmp
+		CFLAGS += -fopenmp
 	endif
 else
 	SRC += slate_NoOpenmp.cc
@@ -97,14 +99,16 @@ cuda:
 xl:
 	@echo built with IBM XL
 
-linux macos: $(OBJ)
-	$(CC) $(CFLAGS) -DMPI -c trace/trace.c -o trace/trace.o
+linux macos: $(OBJ) trace/trace.o
 	$(CXX) $(CCFLAGS) $(OBJ) app.cc trace/trace.o $(LIB) -o app
 	$(CXX) $(CCFLAGS) $(OBJ) xmm.cc trace/trace.o $(LIB) -o xmm
 
 clean:
 	rm -f $(OBJ)
 	rm -f app app.o trace_*.svg
+
+trace/trace.o: trace/trace.c
+	$(CC) $(CFLAGS) -DMPI -c trace/trace.c -o trace/trace.o
 
 .cc.o:
 	$(CXX) $(CCFLAGS) -c $< -o $@
