@@ -96,7 +96,7 @@ void Matrix<FloatType>:: mm_bcast(Matrix &a, Matrix &b, int M, int N,  int k)
 	    }
 	}
     }
-    #pragma omp taskwait
+    // #pragma omp taskwait
 }
 
     
