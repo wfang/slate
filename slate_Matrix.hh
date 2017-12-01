@@ -122,6 +122,10 @@ public:
     void mm_summa_nb(Matrix &a, Matrix &b, double alpha, double beta);
     void mm_summa_pl(Matrix &a, Matrix &b, double alpha, double beta, int la);
     void mm_summa_blocking_pipelined(Matrix &a, Matrix &b, double alpha, double beta, int la);
+    void mm_summa_gpu(Matrix &a, Matrix &b, double alpha, double beta, int la);
+
+    void mm_bcast_gpu(Matrix &a, Matrix &b, int M, int N,  int k,
+		      FloatType* Ad, FloatType* Bd);
     void mm_bcast(Matrix &a, Matrix &b, int M, int N,  int k);
     void mm_Ibcast(Matrix &a, Matrix &b, int M, int N,  int k);
     Memory *memory_;
@@ -383,6 +387,7 @@ Matrix<FloatType>::Matrix(int64_t m, int64_t n, FloatType *a, int64_t lda,
 
         status = cublasCreate(&cublas_handle_[device]);
         assert(status == CUBLAS_STATUS_SUCCESS);
+	printf("\tcublas handle created...\n");
 
         status = cublasSetStream(cublas_handle_[device], gemm_stream_[device]);
         assert(status == CUBLAS_STATUS_SUCCESS);
