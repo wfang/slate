@@ -76,7 +76,15 @@ void Matrix<FloatType>::mm_bcast_gpu(Matrix &a, Matrix &b, int M, int N,  int k,
 		error = cudaMemcpyAsync(Ad + count*lmt, tile->data_,
 					count*sizeof(FloatType),
 					cudaMemcpyHostToDevice);
-		assert(error == cudaSuccess);
+		// assert(error == cudaSuccess);
+		if (error != cudaSuccess) {
+		    printf("%s:%d error %s\n", __FILE__, __LINE__,
+			   cudaGetErrorName(error));
+		    printf("R %d lmt %d src %p dest %p\n",
+			   mpi_rank_, lmt, tile->data_,
+			   Ad + count*lmt);
+		    assert(0);
+		}
 		lmt++;
 	    }
 	}
@@ -153,13 +161,13 @@ void Matrix<FloatType>:: mm_summa_gpu(Matrix &a, Matrix &b, double alpha, double
     int lmt = 0, lnt = 0; // number of local rows/columns tiles
     std::vector<int> lm2gm, ln2gn; // lm2gm[li]=global index i
     for (int i=0; i<M; i++) 
-	if (tileIsLocal(i,0)) {
+	if (i%p == prow) {
 	    lmt++;
 	    lm2gm.push_back(i);
 	}
 
     for (int j=0; j<N; j++)
-	if (tileIsLocal(0, j)) {
+	if (j%q == pcol) {
 	    lnt++;
 	    ln2gn.push_back(j);
 	}
@@ -177,8 +185,9 @@ void Matrix<FloatType>:: mm_summa_gpu(Matrix &a, Matrix &b, double alpha, double
     // First move all of local C to the GPU
     for (int li=0; li<lmt; li++) {
 	int i = lm2gm[li];
-	for (int lj=0; lj<lmt; lj++) {
+	for (int lj=0; lj<lnt; lj++) {
 	    int j = ln2gn[lj];
+	    // printf("li %d lj %d i %d j %d\n", li, lj, i, j);
 	    assert(tileIsLocal(i,j));
 	    error = cudaMemcpyAsync(Cd + tile_size * (li+lj*lmt), c(i,j)->data_,
 				    tile_size * sizeof(FloatType),
@@ -271,7 +280,6 @@ void Matrix<FloatType>:: mm_summa_gpu(Matrix &a, Matrix &b, double alpha, double
 			Bd_array, nb,
 			&beta, Cd_array, nb,
 			lmt*lnt);
-		printf("cublas status: %d\n", status);
 		assert(status == CUBLAS_STATUS_SUCCESS);
 	    } else {
 		cublasStatus_t status =
@@ -300,8 +308,6 @@ void Matrix<FloatType>:: mm_summa_gpu(Matrix &a, Matrix &b, double alpha, double
 	for (int lj=0; lj<lnt; lj++) {
 	    int j = ln2gn[lj];
 	    assert(tileIsLocal(i,j));
-	    printf("li,lj=(%d,%d), i,j=(%d,%d)\n",
-		   li, lj, i, j);
 	    cudaMemcpyAsync(c(i,j)->data_, Cd+ (li+lj*lmt)*nb*nb,
 			    nb*nb*sizeof(FloatType),
 			    cudaMemcpyDeviceToHost);
