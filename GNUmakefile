@@ -60,7 +60,7 @@ endif
 #-----------------------------------------
 # if CUDA
 ifeq (cuda,$(filter cuda,$(MAKECMDGOALS)))
-	CCFLAGS += -DSLATE_WITH_CUDA
+	CCFLAGS += -DSLATE_WITH_CUDA -I${CUDADIR}/include
 	LIB += -L${CUDADIR}/lib64 -lcublas -lcudart
 else
 	SRC += slate_NoCuda.cc
