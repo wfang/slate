@@ -44,10 +44,10 @@ namespace slate {
 ///-----------------------------------------------------------------------------
 /// \brief
 ///
-template <typename FloatType>
+template <typename scalar_t>
 void Debug::diffLapackMatrices(int64_t m, int64_t n,
-                               FloatType *a, int64_t lda,
-                               FloatType *b, int64_t ldb,
+                               scalar_t *a, int64_t lda,
+                               scalar_t *b, int64_t ldb,
                                int64_t mb, int64_t nb)
 {
     for (int64_t i = 0; i < m; ++i) {
@@ -60,7 +60,7 @@ void Debug::diffLapackMatrices(int64_t m, int64_t n,
             if (j%nb == 2)
                 j += nb-4;
 
-            FloatType error = a[(size_t)lda*j+i] - b[(size_t)lda*j+i];
+            scalar_t error = a[(size_t)lda*j+i] - b[(size_t)lda*j+i];
             printf("%c", error < 0.00000000000001 ? '.' : '#');
 
             if ((j+1)%nb == 0)
@@ -72,7 +72,7 @@ void Debug::diffLapackMatrices(int64_t m, int64_t n,
             for (int64_t j = 0; j < (n/nb)*5; ++j) {
                 printf("-");
             }
-            printf("\n");        
+            printf("\n");
         }
     }
     printf("\n");
@@ -81,39 +81,40 @@ void Debug::diffLapackMatrices(int64_t m, int64_t n,
 ///-----------------------------------------------------------------------------
 /// \brief
 ///
-template <typename FloatType>
-void Debug::checkTilesLives(Matrix<FloatType> &a)
+template <typename scalar_t>
+void Debug::checkTilesLives(Matrix<scalar_t> &a)
 {
-    for (auto it = a.tiles_->begin(); it != a.tiles_->end(); ++it) {
-
+    // i, j are global indices
+    for (auto it = a.storage_->tiles_.begin(); it != a.storage_->tiles_.end(); ++it) {
         int64_t i = std::get<0>(it->first);
-        int64_t j = std::get<1>(it->first);       
+        int64_t j = std::get<1>(it->first);
 
-        if (!a.tileIsLocal(i, j))
-            if ((*a.lives_)[{i, j}] != 0 || it->second->data_ != nullptr)
+        if (! a.tileIsLocal(i, j))
+            if (a.storage_->lives_[{i, j}] != 0 || it->second->data() != nullptr)
 
-                std::cout << "P" << a.mpi_rank_
+                std::cout << "P"      << a.mpi_rank_
                           << " TILE " << std::get<0>(it->first)
-                          << " " << std::get<1>(it->first)
-                          << " LIFE " << (*a.lives_)[{i, j}]
-                          << " data_ " << it->second->data_ 
-                          << " DEV " << std::get<2>(it->first) << std::endl;
+                          << " "      << std::get<1>(it->first)
+                          << " LIFE " << a.storage_->lives_[{i, j}]
+                          << " data " << it->second->data()
+                          << " DEV "  << std::get<2>(it->first) << "\n";
     }
 }
 
 ///-----------------------------------------------------------------------------
 /// \brief
 ///
-template <typename FloatType>
-void Debug::printTilesLives(Matrix<FloatType> &a)
+template <typename scalar_t>
+void Debug::printTilesLives(Matrix<scalar_t> &a)
 {
+    // i, j are local indices
     if (a.mpi_rank_ == 0) {
-        for (int64_t i = 0; i < a.mt_; ++i) {
-            for (int64_t j = 0; j < a.nt_; j++) {
-                if (a.tiles_->find({i, j, a.host_num_}) == a.tiles_->end())
+        for (int64_t i = 0; i < a.mt(); ++i) {
+            for (int64_t j = 0; j < a.nt(); j++) {
+                if (a.storage_->tiles_.find(a.globalIndex(i, j, a.host_num_)) == a.storage_->tiles_.end())
                     printf("  .");
                 else
-                    printf("%3lld", (long long) (*a.lives_)[{a.it_+i, a.jt_+j}]);
+                    printf("%3lld", (long long) a.tileLife(i, j));
             }
             printf("\n");
         }
@@ -123,15 +124,16 @@ void Debug::printTilesLives(Matrix<FloatType> &a)
 ///-----------------------------------------------------------------------------
 /// \brief
 ///
-template <typename FloatType>
-void Debug::printTilesMaps(Matrix<FloatType> &a)
+template <typename scalar_t>
+void Debug::printTilesMaps(Matrix<scalar_t> &a)
 {
-    for (int64_t i = 0; i < a.mt_; ++i) {
-        for (int64_t j = 0; j <= i && j < a.nt_; ++j) {
-            auto it = a.tiles_->find({i, j, a.host_num_});
-            if (it != a.tiles_->end()) {
+    // i, j are local indices
+    for (int64_t i = 0; i < a.mt(); ++i) {
+        for (int64_t j = 0; j <= i && j < a.nt(); ++j) {
+            auto it = a.storage_->tiles_.find({i, j, a.host_num_});
+            if (it != a.storage_->tiles_.end()) {
                 auto tile = it->second;
-                if (tile->origin_ == true)
+                if (tile->origin() == true)
                     printf("o");
                 else
                     printf("x");
@@ -143,12 +145,12 @@ void Debug::printTilesMaps(Matrix<FloatType> &a)
         printf("\n");
     }
     for (int device = 0; device < a.num_devices_; ++device) {
-        for (int64_t i = 0; i < a.mt_; ++i) {
-            for (int64_t j = 0; j <= i && j < a.nt_; ++j) {
-                auto it = a.tiles_->find({i, j, device});
-                if (it != a.tiles_->end()) {
+        for (int64_t i = 0; i < a.mt(); ++i) {
+            for (int64_t j = 0; j <= i && j < a.nt(); ++j) {
+                auto it = a.storage_->tiles_.find({i, j, device});
+                if (it != a.storage_->tiles_.end()) {
                     auto tile = it->second;
-                    if (tile->origin_ == true)
+                    if (tile->origin() == true)
                         printf("o");
                     else
                         printf("x");

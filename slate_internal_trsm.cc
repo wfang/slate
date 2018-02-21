@@ -39,59 +39,62 @@
 
 #include "slate_Matrix.hh"
 #include "slate_types.hh"
+#include "slate_Tile_blas.hh"
 
 namespace slate {
+namespace internal {
 
 ///-----------------------------------------------------------------------------
 /// \brief
-///
-template <typename FloatType>
-template <Target target>
-void Matrix<FloatType>::trsm(blas::Side side, blas::Uplo uplo,
-                             blas::Op op, blas::Diag diag,
-                             FloatType alpha, Matrix &&a,
-                                              Matrix &&b,
-                             int priority)
+/// Triangular solve matrix (multiple right-hand sides).
+/// Dispatches to target implementations.
+template <Target target, typename scalar_t>
+void trsm(Side side, Diag diag,
+          scalar_t alpha, TriangularMatrix< scalar_t > &&A,
+                          Matrix< scalar_t > &&B,
+          int priority)
 {
     trsm(internal::TargetType<target>(),
-        side, uplo, op, diag,
-        alpha, a, b);
+         side, diag,
+         alpha, A, B,
+         priority);
 }
 
 ///-----------------------------------------------------------------------------
 /// \brief
-///
-template <typename FloatType>
-void Matrix<FloatType>::trsm(internal::TargetType<Target::HostTask>,
-                             blas::Side side, blas::Uplo uplo,
-                             blas::Op op, blas::Diag diag,
-                             FloatType alpha, Matrix &a,
-                                              Matrix &b,
-                             int priority)
+/// Triangular solve matrix (multiple right-hand sides).
+/// Host OpenMP task implementation.
+template <typename scalar_t>
+void trsm(internal::TargetType<Target::HostTask>,
+          Side side, Diag diag,
+          scalar_t alpha, TriangularMatrix< scalar_t > &A,
+                          Matrix< scalar_t > &B,
+          int priority)
 {
     // Right, Lower, Trans
-    for (int64_t m = 0; m < b.mt_; ++m)
-        if (b.tileIsLocal(m, 0))
-            #pragma omp task shared(a, b)
+    for (int64_t i = 0; i < B.mt(); ++i)
+        if (B.tileIsLocal(i, 0))
+            #pragma omp task shared(A, B)
             {
-                a.tileCopyToHost(0, 0, a.tileDevice(0, 0));
-                b.tileMoveToHost(m, 0, b.tileDevice(m, 0));
-                Tile<FloatType>::trsm(side, uplo, op, diag,
-                                      alpha, a(0, 0),
-                                             b(m, 0));
-                a.tileTick(0, 0);
+                A.tileCopyToHost(0, 0, A.tileDevice(0, 0));
+                B.tileMoveToHost(i, 0, B.tileDevice(i, 0));
+                trsm(side, diag,
+                     alpha, A(0, 0),
+                            B(i, 0));
+                A.tileTick(0, 0);
             }
 
     #pragma omp taskwait
 }
 
 //------------------------------------------------------------------------------
+// explicit instantiations
 template
-void Matrix<double>::trsm<Target::HostTask>(
-    blas::Side side, blas::Uplo uplo,
-    blas::Op op, blas::Diag diag,
-    double alpha, Matrix &&a,
-                  Matrix &&b,
+void trsm< Target::HostTask, double >(
+    Side side, Diag diag,
+    double alpha, TriangularMatrix< double > &&A,
+                  Matrix< double > &&B,
     int priority);
 
+} // namespace internal
 } // namespace slate

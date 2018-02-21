@@ -39,39 +39,46 @@
 
 #include "slate_Matrix.hh"
 #include "slate_types.hh"
+#include "slate_Tile_blas.hh"
 
 namespace slate {
+namespace internal {
 
 ///-----------------------------------------------------------------------------
 /// \brief
-///
-template <typename FloatType>
-template <Target target>
-void Matrix<FloatType>::potrf(blas::Uplo uplo, Matrix &&a, int priority)
+/// Cholesky factorization of single tile.
+/// Dispatches to target implementations.
+template <Target target, typename scalar_t>
+void potrf(HermitianMatrix< scalar_t > &&A, int priority)
 {
-    potrf(internal::TargetType<target>(), uplo, a);
+    potrf(internal::TargetType<target>(), A, priority);
 }
 
 ///-----------------------------------------------------------------------------
 /// \brief
-///
-template <typename FloatType>
-void Matrix<FloatType>::potrf(internal::TargetType<Target::HostTask>,
-                              blas::Uplo uplo, Matrix &a, int priority)
+/// Cholesky factorization of single tile, host implementation.
+template <typename scalar_t>
+void potrf(internal::TargetType<Target::HostTask>,
+           HermitianMatrix< scalar_t > &A, int priority)
 {
-    if (a.tileIsLocal(0, 0))
-        #pragma omp task shared(a) priority(priority)
+    assert(A.mt() == 1);
+    assert(A.nt() == 1);
+
+    if (A.tileIsLocal(0, 0))
+        #pragma omp task shared(A) priority(priority)
         {
-            a.tileMoveToHost(0, 0, a.tileDevice(0, 0));
-            Tile<FloatType>::potrf(uplo, a(0, 0));
+            A.tileMoveToHost(0, 0, A.tileDevice(0, 0));
+            potrf(A(0, 0));
         }
 
     #pragma omp taskwait
 }
 
 //------------------------------------------------------------------------------
+// explicit instantiations
 template
-void Matrix<double>::potrf<Target::HostTask>(
-    blas::Uplo uplo, Matrix &&a, int priority);
+void potrf< Target::HostTask, double >(
+    HermitianMatrix<double> &&A, int priority);
 
+} // namespace internal
 } // namespace slate
