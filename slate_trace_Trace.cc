@@ -56,7 +56,7 @@ double Trace::hscale_;
 bool Trace::tracing_ = false;
 int Trace::num_threads_ = omp_get_max_threads();
 
-std::vector<std::vector<Event>> Trace::events_ = 
+std::vector<std::vector<Event>> Trace::events_ =
     std::vector<std::vector<Event>>(omp_get_max_threads());
 
 std::map<std::string, Color> Trace::function_color_ = {
@@ -104,7 +104,7 @@ void Trace::finish()
     MPI_Barrier(MPI_COMM_WORLD);
 
     // Start the trace file.
-    FILE *trace_file;
+    FILE *trace_file = nullptr;
     std::string file_name("trace_" + std::to_string(time(nullptr)) + ".svg");
 
     if (mpi_rank == 0) {

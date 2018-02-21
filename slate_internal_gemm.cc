@@ -38,10 +38,74 @@
 //------------------------------------------------------------------------------
 
 #include "slate_Matrix.hh"
+#include "slate_types.hh"
+#include "slate_Tile_blas.hh"
 
 namespace slate {
+namespace internal {
 
-template <>
-int Matrix<double>::host_num_ = omp_get_initial_device();
+///-----------------------------------------------------------------------------
+/// \brief
+/// General matrix multiply to update trailing matrix,
+/// where A is a single block column and B is a single block row.
+/// Dispatches to target implementations.
+template <Target target, typename scalar_t>
+void gemm(scalar_t alpha, Matrix< scalar_t >&& A,
+                          Matrix< scalar_t >&& B,
+          scalar_t beta,  Matrix< scalar_t >&& C,
+          int priority)
+{
+    gemm(internal::TargetType<target>(),
+         alpha, A,
+                B,
+         beta,  C,
+         priority);
+}
 
+///-----------------------------------------------------------------------------
+/// \brief
+/// General matrix multiply to update trailing matrix,
+/// where A is a single block column and B is a single block row.
+/// Host OpenMP task implementation.
+template <typename scalar_t>
+void gemm(internal::TargetType<Target::HostTask>,
+          scalar_t alpha, Matrix< scalar_t >& A,
+                          Matrix< scalar_t >& B,
+          scalar_t beta,  Matrix< scalar_t >& C,
+          int priority)
+{
+    // check dimensions
+    assert(A.nt() == 1);
+    assert(B.mt() == 1);
+    assert(A.mt() == C.mt());
+    assert(B.nt() == C.nt());
+
+    for (int64_t i = 0; i < C.mt(); ++i)
+        for (int64_t j = 0; j < C.nt(); ++j)
+            if (C.tileIsLocal(i, j))
+                #pragma omp task shared(A, B, C) priority(priority)
+                {
+                    A.tileCopyToHost(i, 0, A.tileDevice(i, 0));
+                    B.tileCopyToHost(j, 0, B.tileDevice(j, 0));
+                    C.tileMoveToHost(i, j, C.tileDevice(i, j));
+                    gemm(alpha, A(i, 0),
+                                B(0, j),
+                         beta,  C(i, j));
+                    A.tileTick(i, 0);
+                    B.tileTick(j, 0);
+                }
+
+    #pragma omp taskwait
+}
+
+//------------------------------------------------------------------------------
+// Explicit instantiations.
+template
+void gemm< Target::HostTask, double >(
+    double alpha, Matrix<double>&& A,
+                  Matrix<double>&& B,
+    double beta,  Matrix<double>&& C,
+    int priority);
+
+} // namespace internal
 } // namespace slate

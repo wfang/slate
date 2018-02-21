@@ -69,4 +69,54 @@
         throw CudaException(#call, error, __FILE__, __func__, __LINE__); \
 }
 
+#include "slate_Matrix.hh"
+
+namespace slate {
+namespace internal {
+
+//------------------------------------------------------------------------------
+// BLAS and LAPACK routines that update portions of a matrix on each node,
+// as steps in a larger parallel factorization or operation.
+// E.g., this gemm multiplies one block column by one block row to update the
+// trailing matrix. These operations can be mapped to batch BLAS.
+
+//-----------------------------------------
+// gemm()
+template <Target target=Target::HostTask, typename scalar_t>
+void gemm(scalar_t alpha, Matrix< scalar_t > &&A,
+                          Matrix< scalar_t > &&B,
+          scalar_t beta,  Matrix< scalar_t > &&C,
+          int priority=0);
+
+//-----------------------------------------
+// potrf()
+template <Target target=Target::HostTask, typename scalar_t>
+void potrf(HermitianMatrix< scalar_t > &&A,
+           int priority=0);
+
+//-----------------------------------------
+// syrk()
+template <Target target=Target::HostTask, typename scalar_t>
+void syrk(scalar_t alpha, SymmetricMatrix< scalar_t > &&A,
+          scalar_t beta,  SymmetricMatrix< scalar_t > &&C,
+          int priority=0);
+
+// //-----------------------------------------
+// // herk()
+// template <Target target=Target::HostTask, typename scalar_t>
+// void herk(blas::traits<scalar_t>::real_t alpha, HermitianMatrix< scalar_t > &&A,
+//           blas::traits<scalar_t>::real_t beta,  HermitianMatrix< scalar_t > &&C,
+//           int priority=0);
+
+//-----------------------------------------
+// trsm()
+template <Target target=Target::HostTask, typename scalar_t>
+void trsm(Side side, Diag diag,
+          scalar_t alpha, TriangularMatrix< scalar_t > &&a,
+                          Matrix< scalar_t > &&b,
+          int priority=0);
+
+} // namespace internal
+} // namespace slate
+
 #endif // SLATE_INTERNAL_HH

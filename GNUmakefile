@@ -11,19 +11,28 @@
 # mkl=1         for Intel MKL. $MKLROOT must also be set.
 # cuda=1        for CUDA
 # openmp=1      for OpenMP
+# shared=1      for shared library (libslate.so); otherwise static (libslate.a)
 
 -include make.inc
 
-CXXFLAGS = -O3 -std=c++11 -Wall -pedantic
+CXXFLAGS = -O3 -std=c++11 -Wall -pedantic -MMD
 
 pwd = ${shell pwd}
+
+#-------------------------------------------------------------------------------
+# if shared
+ifeq (${shared},1)
+	CXXFLAGS += -fPIC
+	LDFLAGS  += -fPIC
+endif
 
 #-------------------------------------------------------------------------------
 # if OpenMP
 ifeq (${openmp},1)
 	CXXFLAGS += -fopenmp
+	LDFLAGS  += -fopenmp
 else
-	SRC += slate_NoOpenmp.cc
+	lib_src += slate_NoOpenmp.cc
 endif
 
 #-------------------------------------------------------------------------------
@@ -36,11 +45,11 @@ else ifeq (${spectrum},1)
 	CXXFLAGS += -DSLATE_WITH_MPI
 	LIB += -lmpi_ibm
 else
-	SRC += slate_NoMpi.cc
+	lib_src += slate_NoMpi.cc
 endif
 
 #-------------------------------------------------------------------------------
-# if MKL 
+# if MKL
 ifeq (${mkl},1)
 	CXXFLAGS += -DSLATE_WITH_MKL
 	# if Linux
@@ -64,8 +73,8 @@ ifeq (${cuda},1)
 	CXXFLAGS += -DSLATE_WITH_CUDA
 	LIB += -lcublas -lcudart
 else
-	SRC += slate_NoCuda.cc
-	SRC += slate_NoCublas.cc
+	lib_src += slate_NoCuda.cc
+	lib_src += slate_NoCublas.cc
 endif
 
 #-------------------------------------------------------------------------------
@@ -76,27 +85,75 @@ CXXFLAGS += -I./lapackpp/include
 LIB += -L./lapackpp/lib -Wl,-rpath,${pwd}/lapackpp/lib -llapackpp
 
 #-------------------------------------------------------------------------------
-SRC += slate_Debug.cc \
-       slate_Matrix_gemm.cc \
-       slate_Matrix_potrf.cc \
-       slate_Matrix_syrk.cc \
-       slate_Matrix_trsm.cc \
-       slate_Matrix.cc \
+# Files
+lib_src += \
+       slate_Debug.cc \
+       slate_internal_gemm.cc \
+       slate_internal_potrf.cc \
+       slate_internal_syrk.cc \
+       slate_internal_trsm.cc \
        slate_Memory.cc \
-       slate_Tile.cc \
-       slate_trace_Trace.cc \
-       slate_potrf.cc
+       slate_Trace.cc \
+       slate_potrf.cc \
+       slate_types.cc
 
-OBJ = $(SRC:.cc=.o)
+test_src = \
+       test_memory.cc \
+       test_matrix.cc \
+       test_tile.cc \
+       test_potrf.cc
 
-all: potrf
+lib_obj  = $(lib_src:.cc=.o)
+test_obj = $(test_src:.cc=.o)
+dep      = $(lib_src:.cc=.d) $(test_src:.cc=.d)
 
-potrf: $(OBJ) potrf.o
-	$(CXX) $(CXXFLAGS) $(OBJ) potrf.o $(LIB) -o $@
+test = $(basename $(test_src))
+
+
+#-------------------------------------------------------------------------------
+# Rules
+.DELETE_ON_ERROR:
+.SUFFIXES:
+.PHONY: all libs clean
+
+all: $(test)
+
+lib:
+	mkdir lib
+
+# shared or static library
+ifeq (${shared},1)
+    lib_so = lib/libslate.so
+
+    libs: $(lib_so)
+
+    $(lib_so): $(lib_obj) | lib
+		$(CXX) $(LDFLAGS) $^ $(LIB) -shared -o $@
+else
+    lib_a = lib/libslate.a
+
+    libs: $(lib_a)
+
+    $(lib_a): $(lib_obj) | lib
+		ar cr $@ $^
+		ranlib $@
+endif
+
+$(test): %: %.o | libs
+	$(CXX) $(LDFLAGS) $^ -Llib -lslate $(LIB) -o $@
 
 clean:
-	rm -f $(OBJ)
-	rm -f potrf potrf.o trace_*.svg
+	rm -f $(lib_obj) $(test_obj) $(test) trace_*.svg
 
 %.o: %.cc
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# preprocess source
+%.i: %.cc
+	$(CXX) $(CXXFLAGS) -E $< -o $@
+
+# precompile header to check for errors
+%.gch: %.hh
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+-include ${dep}

@@ -37,67 +37,14 @@
 // comments to <slate-user@icl.utk.edu>.
 //------------------------------------------------------------------------------
 
-#include "slate_Matrix.hh"
 #include "slate_types.hh"
 
 namespace slate {
 
-///-----------------------------------------------------------------------------
-/// \brief
-///
-template <typename FloatType>
-template <Target target>
-void Matrix<FloatType>::gemm(blas::Op opa, blas::Op opb,
-                             FloatType alpha, Matrix &&a,
-                                              Matrix &&b,
-                             FloatType beta,  Matrix &&c,
-                             int priority)
-{
-    gemm(internal::TargetType<target>(),
-         opa, opb,
-         alpha, a,
-                b,
-         beta,  c);
-}
-
-///-----------------------------------------------------------------------------
-/// \brief
-///
-template <typename FloatType>
-void Matrix<FloatType>::gemm(internal::TargetType<Target::HostTask>,
-                             blas::Op opa, blas::Op opb,
-                             FloatType alpha, Matrix &a,
-                                              Matrix &b,
-                             FloatType beta,  Matrix &c,
-                             int priority)
-{
-    // NoTrans, Trans
-    for (int m = 0; m < c.mt_; ++m)
-        for (int n = 0; n < c.nt_; ++n)
-            if (c.tileIsLocal(m, n))
-                #pragma omp task shared(a, b, c) priority(priority)
-                {
-                    a.tileCopyToHost(m, 0, a.tileDevice(m, 0));
-                    b.tileCopyToHost(n, 0, b.tileDevice(n, 0));
-                    c.tileMoveToHost(m, n, c.tileDevice(m, n));
-                    Tile<FloatType>::gemm(opa, opb,
-                                          alpha, a(m, 0),
-                                                 b(n, 0),
-                                          beta,  c(m, n));
-                    a.tileTick(m, 0);
-                    b.tileTick(n, 0);
-                }
-
-    #pragma omp taskwait
-}
-
-//------------------------------------------------------------------------------
-template
-void Matrix<double>::gemm<Target::HostTask>(
-    blas::Op opa, blas::Op opb,
-    double alpha, Matrix &&a,
-                  Matrix &&b,
-    double beta,  Matrix &&c,
-    int priority);
+// -----------------------------------------------------------------------------
+MPI_Datatype traits< float  >::mpi_type = MPI_FLOAT;
+MPI_Datatype traits< double >::mpi_type = MPI_DOUBLE;
+MPI_Datatype traits< std::complex<float>  >::mpi_type = MPI_C_COMPLEX;
+MPI_Datatype traits< std::complex<double> >::mpi_type = MPI_C_DOUBLE_COMPLEX;
 
 } // namespace slate
