@@ -22,7 +22,7 @@ inline int slate_set_num_blas_threads(const int nt) { return -1; }
 
 //------------------------------------------------------------------------------
 template<typename scalar_t>
-void test_trnorm_work(Params& params, bool run)
+void test_henorm_work(Params& params, bool run)
 {
     using real_t = blas::real_type<scalar_t>;
     using blas::real;
@@ -33,8 +33,6 @@ void test_trnorm_work(Params& params, bool run)
     // get & mark input values
     lapack::Norm norm = params.norm.value();
     lapack::Uplo uplo = params.uplo.value();
-    lapack::Diag diag = params.diag.value();
-    int64_t m = params.dim.m();
     int64_t n = params.dim.n();
     int64_t nb = params.nb.value();
     int64_t p = params.p.value();
@@ -54,7 +52,6 @@ void test_trnorm_work(Params& params, bool run)
         return;
 
     // Sizes of data
-    int64_t Am = m;
     int64_t An = n;
 
     // local values
@@ -62,17 +59,6 @@ void test_trnorm_work(Params& params, bool run)
 
     int mpi_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-
-    // upper requires m <= n,
-    // lower requires m >= n
-    if (((uplo == blas::Uplo::Lower) && (m < n)) ||
-        ((uplo == blas::Uplo::Upper) && (m > n))) {
-        if (mpi_rank == 0) {
-            using lld = long long;
-            printf( "skipping invalid size: %s, %lld-by-%lld\n", uplo2str(uplo), (lld) m, (lld) n );
-        }
-        return;
-    }
 
     // BLACS/MPI variables
     int ictxt, nprow, npcol, myrow, mycol, info;
@@ -87,19 +73,17 @@ void test_trnorm_work(Params& params, bool run)
     Cblacs_gridinfo(ictxt, &nprow, &npcol, &myrow, &mycol);
 
     // matrix A, figure out local size, allocate, create descriptor, initialize
-    int64_t mlocA = scalapack_numroc(Am, nb, myrow, i0, nprow);
+    int64_t mlocA = scalapack_numroc(An, nb, myrow, i0, nprow);
     int64_t nlocA = scalapack_numroc(An, nb, mycol, i0, npcol);
     int64_t lldA  = std::max( int64_t(1), mlocA );
-    scalapack_descinit(descA_tst, Am, An, nb, nb, i0, i0, ictxt, lldA, &info);
-    if (info != 0)
-        printf( "scalapack_descinit info %d\n", info );
+    scalapack_descinit(descA_tst, An, An, nb, nb, i0, i0, ictxt, lldA, &info);
     assert(info==0);
     std::vector<scalar_t> A_tst(lldA * nlocA);
     // todo: fix the generation
-    //int iseed = 1;
-    //scalapack_pplrnt(&A_tst[0], Am, An, nb, nb, myrow, mycol, nprow, npcol, mlocA, iseed+1);
+    // int iseed = 1;
+    // scalapack_pplrnt(&A_tst[0], An, An, nb, nb, myrow, mycol, nprow, npcol, mlocA, iseed+1);
     int64_t iseeds[4] = { myrow, mycol, 2, 3 };
-    // lapack::larnv(2, iseeds, lldA * nlocA, &A_tst[0] );
+    //lapack::larnv(2, iseeds, lldA * nlocA, &A_tst[0] );
     for (int64_t j = 0; j < nlocA; ++j)
         lapack::larnv(2, iseeds, mlocA, &A_tst[j*lldA]);
 
@@ -108,9 +92,9 @@ void test_trnorm_work(Params& params, bool run)
     }
 
     // todo: work-around to initialize BaseMatrix::num_devices_
-    slate::TrapezoidMatrix<scalar_t> A0(uplo, diag, Am, An, nb, p, q, MPI_COMM_WORLD);
+    slate::HermitianMatrix<scalar_t> A0(uplo, An, nb, p, q, MPI_COMM_WORLD);
 
-    slate::TrapezoidMatrix<scalar_t> A;
+    slate::HermitianMatrix<scalar_t> A;
     std::vector<scalar_t*> Aarray(A.num_devices());
     if (target == slate::Target::Devices) {
         // Distribute local ScaLAPACK data in 1D-cyclic fashion to GPU devices.
@@ -136,14 +120,14 @@ void test_trnorm_work(Params& params, bool run)
             }
         }
         // Create SLATE matrix from the device layout.
-        A = slate::TrapezoidMatrix<scalar_t>::fromDevices(
-            uplo, diag, Am, An, Aarray.data(), Aarray.size(), lldA, nb,
+        A = slate::HermitianMatrix<scalar_t>::fromDevices(
+            uplo, An, Aarray.data(), Aarray.size(), lldA, nb,
             nprow, npcol, MPI_COMM_WORLD);
     }
     else {
         // Create SLATE matrix from the ScaLAPACK layout.
-        A = slate::TrapezoidMatrix<scalar_t>::fromScaLAPACK(
-            uplo, diag, Am, An, &A_tst[0], lldA, nb, nprow, npcol, MPI_COMM_WORLD);
+        A = slate::HermitianMatrix<scalar_t>::fromScaLAPACK(
+            uplo, An, &A_tst[0], lldA, nb, nprow, npcol, MPI_COMM_WORLD);
     }
 
     if (trace) slate::trace::Trace::on();
@@ -181,31 +165,31 @@ void test_trnorm_work(Params& params, bool run)
         int saved_num_threads = slate_set_num_blas_threads(omp_num_threads);
 
         // allocate work space
-        std::vector<real_t> worklantr(std::max(mlocA, nlocA));
+        int lcm = scalapack_ilcm( &nprow, &npcol );
+        int ldw = nb * slate::ceildiv( int(slate::ceildiv( nlocA, nb )), (lcm / nprow) );
+        int lwork = 2*mlocA + nlocA + ldw;
+        std::vector<real_t> worklanhe( lwork );
 
         // run the reference routine
         MPI_Barrier(MPI_COMM_WORLD);
         time = libtest::get_wtime();
-        real_t A_norm_ref = scalapack_plantr(
-            norm2str(norm), uplo2str(A.uplo()), diag2str(diag),
-            Am, An, &A_tst[0], i1, i1, descA_tst, &worklantr[0]);
+        real_t A_norm_ref = scalapack_planhe(
+            norm2str(norm), uplo2str(A.uplo()),
+            An, &A_tst[0], i1, i1, descA_tst, &worklanhe[0]);
         MPI_Barrier(MPI_COMM_WORLD);
         double time_ref = libtest::get_wtime() - time;
 
-        //A_norm_ref = lapack::lantr(
-        //    norm, A.uplo(), diag,
-        //    Am, An, &A_tst[0], lldA);
+        //A_norm_ref = lapack::lanhe(
+        //    norm, A.uplo(),
+        //    An, &A_tst[0], lldA);
 
         // difference between norms
         real_t error = std::abs(A_norm - A_norm_ref) / A_norm_ref;
-        if (norm == lapack::Norm::One) {
-            error /= sqrt( Am );
-        }
-        else if (norm == lapack::Norm::Inf) {
+        if (norm == lapack::Norm::One || norm == lapack::Norm::Inf) {
             error /= sqrt( An );
         }
         else if (norm == lapack::Norm::Fro) {
-            error /= sqrt( Am*An );
+            error /= An;  // = sqrt( An*An );
         }
 
         if (verbose && mpi_rank == 0) {
@@ -233,20 +217,20 @@ void test_trnorm_work(Params& params, bool run)
     //---------- extended tests
     if (extended) {
         // allocate work space
-        std::vector<real_t> worklantr(std::max(mlocA, nlocA));
+        int lcm = scalapack_ilcm( &nprow, &npcol );
+        int ldw = nb * slate::ceildiv( int(slate::ceildiv( nlocA, nb )), (lcm / nprow) );
+        int lwork = 2*mlocA + nlocA + ldw;
+        std::vector<real_t> worklanhe( lwork );
 
         // seed all MPI processes the same
         srand( 1234 );
 
         // Test tiles in 2x2 in all 4 corners, and 4 random rows and cols,
         // up to 64 tiles total.
-        // Indices may be out-of-bounds if mt or nt is small, so check in loops.
-        int64_t mt = A.mt();
+        // Indices may be out-of-bounds if nt is small, so check in loops.
         int64_t nt = A.nt();
-        std::set<int64_t> i_indices = { 0, 1, mt-2, mt-1 };
         std::set<int64_t> j_indices = { 0, 1, nt-2, nt-1 };
         for (size_t k = 0; k < 4; ++k) {
-            i_indices.insert( rand() % mt );
             j_indices.insert( rand() % nt );
         }
         for (auto j: j_indices) {
@@ -255,12 +239,12 @@ void test_trnorm_work(Params& params, bool run)
             int64_t jb = std::min( n - j*nb, nb );
             assert( jb == A.tileNb( j ) );
 
-            for (auto i: i_indices) {
+            for (auto i: j_indices) {
                 // lower requires i >= j
                 // upper requires i <= j
-                if (i < 0 || i >= mt || (uplo == blas::Uplo::Lower ? i < j : i > j))
+                if (i < 0 || i >= nt || (uplo == blas::Uplo::Lower ? i < j : i > j))
                     continue;
-                int64_t ib = std::min( m - i*nb, nb );
+                int64_t ib = std::min( n - i*nb, nb );
                 assert( ib == A.tileMb( i ) );
 
                 // Test entries in 2x2 in all 4 corners, and 1 other random row and col,
@@ -293,7 +277,6 @@ void test_trnorm_work(Params& params, bool run)
                             A.tileMoveToHost(i, j, A.tileDevice(i, j));
                             auto T = A(i, j);
                             save = T(ii, jj);
-                            assert( A_tst[ ilocal + jlocal*lldA ] == save );
                             T.at(ii, jj) = peak;
                             A_tst[ ilocal + jlocal*lldA ] = peak;
                             // todo: this move shouldn't be required -- the trnorm should copy data itself.
@@ -304,20 +287,17 @@ void test_trnorm_work(Params& params, bool run)
                             {slate::Option::Target, target}
                         });
 
-                        real_t A_norm_ref = scalapack_plantr(
-                            norm2str(norm), uplo2str(A.uplo()), diag2str(diag),
-                            Am, An, &A_tst[0], i1, i1, descA_tst, &worklantr[0]);
+                        real_t A_norm_ref = scalapack_planhe(
+                            norm2str(norm), uplo2str(A.uplo()),
+                            An, &A_tst[0], i1, i1, descA_tst, &worklanhe[0]);
 
                         // difference between norms
                         real_t error = std::abs(A_norm - A_norm_ref) / A_norm_ref;
-                        if (norm == lapack::Norm::One) {
-                            error /= sqrt( Am );
-                        }
-                        else if (norm == lapack::Norm::Inf) {
+                        if (norm == lapack::Norm::One || norm == lapack::Norm::Inf) {
                             error /= sqrt( An );
                         }
                         else if (norm == lapack::Norm::Fro) {
-                            error /= sqrt( Am*An );
+                            error /= sqrt( An*An );
                         }
 
                         // Allow for difference, except max norm in real should be exact.
@@ -329,10 +309,8 @@ void test_trnorm_work(Params& params, bool run)
                             tol = 3*eps;
 
                         if (mpi_rank == 0) {
-                            // if peak is nan, expect A_norm to be nan,
-                            // except in Unit case with i == j and ii == jj,
-                            // where peak shouldn't affect A_norm.
-                            bool okay = (std::isnan(real(peak)) && ! (diag == blas::Diag::Unit && i == j && ii == jj)
+                            // if peak is nan, expect A_norm to be nan.
+                            bool okay = (std::isnan(real(peak))
                                             ? std::isnan(A_norm)
                                             : error <= tol);
                             params.okay.value() = params.okay.value() && okay;
@@ -372,7 +350,7 @@ void test_trnorm_work(Params& params, bool run)
 }
 
 // -----------------------------------------------------------------------------
-void test_trnorm(Params& params, bool run)
+void test_henorm(Params& params, bool run)
 {
     switch (params.datatype.value()) {
         case libtest::DataType::Integer:
@@ -380,19 +358,19 @@ void test_trnorm(Params& params, bool run)
             break;
 
         case libtest::DataType::Single:
-            test_trnorm_work<float> (params, run);
+            test_henorm_work<float> (params, run);
             break;
 
         case libtest::DataType::Double:
-            test_trnorm_work<double> (params, run);
+            test_henorm_work<double> (params, run);
             break;
 
         case libtest::DataType::SingleComplex:
-            test_trnorm_work<std::complex<float>> (params, run);
+            test_henorm_work<std::complex<float>> (params, run);
             break;
 
         case libtest::DataType::DoubleComplex:
-            test_trnorm_work<std::complex<double>> (params, run);
+            test_henorm_work<std::complex<double>> (params, run);
             break;
     }
 }

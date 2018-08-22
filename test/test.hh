@@ -33,6 +33,7 @@ public:
     libtest::ParamDouble tol;
     libtest::ParamInt    repeat;
     libtest::ParamInt    verbose;
+    libtest::ParamInt    extended;
     libtest::ParamInt    cache;
     libtest::ParamChar   target;
 
@@ -395,6 +396,7 @@ void test_hemm ( Params& params, bool run );
 void test_her2k ( Params& params, bool run );
 void test_herk ( Params& params, bool run );
 void test_genorm ( Params& params, bool run );
+void test_henorm ( Params& params, bool run );
 void test_synorm ( Params& params, bool run );
 void test_trnorm ( Params& params, bool run );
 
