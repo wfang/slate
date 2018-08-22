@@ -483,7 +483,7 @@ if (opts.aux):
     [ 'genorm', check + dtype + mn + norm ],
     #[ 'henorm', check + dtype + n  + norm + uplo ],
     [ 'synorm', check + dtype + n  + norm + uplo ],
-    [ 'trnorm', check + dtype + n  + norm + uplo + diag ],
+    [ 'trnorm', check + dtype + mn + norm + uplo + diag ],
     ]
 
 # additional blas
